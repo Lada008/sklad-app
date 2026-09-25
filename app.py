@@ -23,11 +23,9 @@ st.markdown("""
         background-color: #f4f6f8 !important;
         color: #1e293b !important;
     }
-    
     p, span, label, div[data-testid="stMarkdownContainer"] p {
         color: #1e293b !important;
     }
-
     .main-header {
         background: linear-gradient(135deg, #1b4d3e 0%, #2e7d32 100%);
         padding: 14px 18px;
@@ -48,7 +46,6 @@ st.markdown("""
         color: #ffffff !important;
         font-size: 0.85rem;
     }
-
     div[data-testid="stRadio"] > label {
         color: #0f172a !important;
         font-weight: 700 !important;
@@ -65,8 +62,6 @@ st.markdown("""
         color: #1e293b !important;
         font-weight: 600 !important;
     }
-
-    /* Záložky s ikonami */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: transparent;
@@ -89,7 +84,6 @@ st.markdown("""
     .stTabs [aria-selected="true"] p {
         color: #ffffff !important;
     }
-
     .product-card {
         background: #ffffff !important;
         border-radius: 14px;
@@ -127,7 +121,6 @@ st.markdown("""
         color: #166534 !important;
         border: 1px solid #bbf7d0;
     }
-
     .stock-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -154,7 +147,6 @@ st.markdown("""
         font-weight: 800 !important;
         color: #0f172a !important;
     }
-
     .fefo-banner {
         background: #fffbeb !important;
         border: 2px solid #f59e0b !important;
@@ -182,7 +174,6 @@ st.markdown("""
         font-weight: 800;
         font-family: monospace;
     }
-
     .pallet-banner {
         background: #eff6ff !important;
         border: 1.5px solid #93c5fd !important;
@@ -497,14 +488,13 @@ if not os.path.exists(EXCEL_FILE):
 else:
     stock_df = load_stock_data(EXCEL_FILE)
 
-# Přepínač skladů
 vybrana_lokace = st.radio(
     "Filtrovat sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
     horizontal=True
 )
 
-# Záložky – focení má čistou ikonu 📷
+# Záložky s ikonami
 tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
     "📷", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat"
 ])
@@ -599,32 +589,4 @@ with tab_rucni:
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("⚠️ Záznam nesrovnalosti v regálu")
-    st.caption("Nesedí stav na skladě s realitou? Zapiš to sem pro vedoucího skladu.")
-
-    with st.form("form_nesrovnalost", clear_on_submit=True):
-        polozka_hledat = st.text_input("Název nebo kód zboží:")
-        lokace_zadat = st.selectbox("Kde zboží leží:", list(LOC_MAP.values()) + ["🤝 Komise"])
-        sarze_zadat = st.text_input("Číslo šarže (pokud je známo):")
-        stav_system = st.number_input("Stav v systému (ks/l):", min_value=0.0, step=1.0)
-        stav_realita = st.number_input("Fyzicky napočítáno v regálu (ks/l):", min_value=0.0, step=1.0)
-        poznamka = st.text_area("Poznámka (např. poškozený obal, chybí krabice):")
-
-        odeslat = st.form_submit_button("💾 Uložit hlášení")
-        if odeslat:
-            if polozka_hledat:
-                uloz_nesrovnalost(
-                    "", polozka_hledat, lokace_zadat, sarze_zadat,
-                    stav_system, stav_realita, poznamka
-                )
-                st.success("✅ Nesrovnalost byla uložena do protokolu.")
-            else:
-                st.error("Vyplň prosím název zboží.")
-
-    if os.path.exists(NESROVNALOSTI_FILE):
-        st.write("---")
-        st.subheader("📋 Protokol nahlášených chyb")
-        df_log = pd.read_csv(NESROVNALOSTI_FILE, encoding='utf-8-sig')
-        st.dataframe(df_log.tail(10), use_container_width=True, hide_index=True)
-
-        with open(NESROVNALOSTI_FILE, "rb") as f:
+    st.subheader("⚠️ Záznam nesrovnalosti v
