@@ -19,23 +19,6 @@ DEFAULT_PIN = st.secrets.get("APP_PIN", "1234")
 EXCEL_FILE = "sklad.xlsx"
 NESROVNALOSTI_FILE = "nesrovnalosti.csv"
 
-# --- PŘIHLAŠOVACÍ OBRAZOVKA (PIN) ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if not st.session_state.authenticated:
-    st.title("🔒 Vstup do skladu")
-    st.write("Zadej přístupový PIN pro otevření aplikace:")
-    pin_vstup = st.text_input("Přístupový PIN:", type="password")
-    
-    if st.button("Vstoupit do aplikace", use_container_width=True):
-        if pin_vstup == DEFAULT_PIN:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("❌ Nesprávný PIN. Zkus to znovu.")
-    st.stop()
-
 # --- DEFINICE FUNKCÍ A PŘEVODŮ ---
 LOC_MAP = {
     '151BO': '🏢 Boršice',
