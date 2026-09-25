@@ -345,7 +345,7 @@ with tab_foto:
         """
 
         # Rychlý model a záložní modely proti chybě 503
-        modely_k_vyzkouseni = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+        modely_k_vyzkouseni = ["gemini-3.8-flash", "gemini-3.8-flash-lite"]
         response = None
         posledni_chyba = None
 
