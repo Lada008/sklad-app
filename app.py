@@ -277,7 +277,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         st.dataframe(tabulka, use_container_width=True, hide_index=True)
         st.write("---")
 
-# --- HLAVNÍ APLIKACE (BEZ NUTNOSTI PŘIHLAŠOVÁNÍ) ---
+# --- HLAVNÍ APLIKACE ---
 if not os.path.exists(EXCEL_FILE):
     st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho prosím v záložce 'Aktualizovat sklad'.")
     stock_df = pd.DataFrame()
@@ -297,7 +297,7 @@ tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
     "📷 Vyfotit obal", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat sklad"
 ])
 
-# 1. ZÁLOŽKA: VYFOTIT OBAL (JEDNÍM KLIKNUTÍM PŘÍMO Z KAMERY)
+# 1. ZÁLOŽKA: VYFOTIT OBAL
 with tab_foto:
     st.caption("Namiř foťák na kanystr, pytel nebo krabici a klepni na spoušť:")
     foto_obal = st.camera_input("Vyfotit obal")
@@ -309,32 +309,34 @@ with tab_foto:
         prompt = """
         Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
         Najdi:
-        1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX).
+        1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
         2. Kód zboží, pokud je vidět (např. CHE01414).
 
         Vrať výhradně čistý JSON:
         {"nazev": "SEM_NAZEV", "kod": null}
         """
 
-        # Nejnovější doporučený model
-        modely_k_vyzkouseni = ["gemini-3.8-flash", "gemini-2.5-flash"]
+        # Jen aktuální, plně funkční modely bez 2.5
+        modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
         response = None
         posledni_chyba = None
 
         client = genai.Client(api_key=API_KEY)
 
         for model_name in modely_k_vyzkouseni:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[image, prompt]
-                )
-                if response and response.text:
-                    break
-            except Exception as e:
-                posledni_chyba = e
-                time.sleep(1)
-                continue
+            for pokus in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[image, prompt]
+                    )
+                    if response and response.text:
+                        break
+                except Exception as e:
+                    posledni_chyba = e
+                    time.sleep(1.5)
+            if response and response.text:
+                break
 
         if not response or not response.text:
             st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
@@ -364,7 +366,7 @@ with tab_rucni:
             "⚡ Našeptávač (začni psát název přípravku):",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš pár písmen (např. Folpan, Bizon, Belkar)..."
+            placeholder="Napiš pár písmen (např. Folpan, Bizon, Ninja)..."
         )
 
         st.caption("— NEBO hledej podle čísla šarže či kódu —")
