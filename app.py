@@ -9,7 +9,173 @@ from datetime import datetime
 import csv
 import time
 
-st.set_page_config(page_title="Skladový asistent", page_icon="📦", layout="centered")
+st.set_page_config(
+    page_title="Skladový asistent", 
+    page_icon="📦", 
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# --- MODERNÍ SKLADOVÝ DESIGN (CSS) ---
+st.markdown("""
+<style>
+    /* Základní písmo a barvy pozadí */
+    .stApp {
+        background-color: #f6f8fa;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    
+    /* Horní lišta / titulek */
+    .main-header {
+        background: linear-gradient(135deg, #1b4d3e 0%, #2e7d32 100%);
+        color: white;
+        padding: 16px 20px;
+        border-radius: 14px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .main-header h1 {
+        color: white !important;
+        font-size: 1.5rem !important;
+        margin: 0 !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Karta produktu */
+    .product-card {
+        background: white;
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+        border: 1px solid #e1e4e8;
+    }
+    .product-title {
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #1f2937;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .product-code {
+        font-size: 0.85rem;
+        font-family: monospace;
+        background: #f1f3f5;
+        padding: 2px 8px;
+        border-radius: 6px;
+        color: #495057;
+    }
+    .category-badge {
+        font-size: 0.82rem;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: 600;
+        background: #e8f5e9;
+        color: #2e7d32;
+        border: 1px solid #c8e6c9;
+    }
+    
+    /* Dlaždice s metrikami zásob */
+    .stock-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+        margin: 14px 0;
+    }
+    .stock-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 10px 12px;
+        text-align: center;
+    }
+    .stock-box-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .stock-box-value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    
+    /* FEFO Výstražný box */
+    .fefo-banner {
+        background: #fffbeb;
+        border: 1.5px solid #f59e0b;
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin: 14px 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    .fefo-icon {
+        font-size: 1.6rem;
+        line-height: 1;
+    }
+    .fefo-text {
+        font-size: 0.95rem;
+        color: #92400e;
+        line-height: 1.4;
+    }
+    .fefo-badge {
+        background: #f59e0b;
+        color: white;
+        padding: 2px 7px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-family: monospace;
+    }
+
+    /* Paletový box */
+    .pallet-banner {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin: 10px 0;
+        color: #1e40af;
+        font-size: 0.92rem;
+        font-weight: 600;
+    }
+
+    /* Vylepšení přepínačů a záložek */
+    div[data-testid="stRadio"] > div {
+        background: white;
+        padding: 6px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background-color: transparent;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: white;
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+        font-weight: 600;
+        border: 1px solid #e2e8f0;
+        border-bottom: none;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #2e7d32 !important;
+        color: white !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Bezpečné načtení API klíče
 API_KEY = st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JmbhByHR5ACrJp3NAIXu3mmONbyWT4hdMt_iVrqr8kmQ")
@@ -17,7 +183,7 @@ API_KEY = st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JmbhByHR5ACrJp3NAIXu3mmONby
 EXCEL_FILE = "sklad.xlsx"
 NESROVNALOSTI_FILE = "nesrovnalosti.csv"
 
-# --- DEFINICE FUNKCÍ A PŘEVODŮ ---
+# --- DEFINICE PŘEVODŮ A MAPOVÁNÍ ---
 LOC_MAP = {
     '151BO': '🏢 Boršice',
     '151VM': '🏭 Valmez',
@@ -150,8 +316,8 @@ def paletova_kalkulacka(popis, qty):
             zb_pytle = int(pytle % 40)
             pal_text = sklonuj(palet, 'paleta')
             if zb_pytle == 0:
-                return f"🚜 **Palety:** {pal_text} (po 40 pytlích / 1 tuna)"
-            return f"🚜 **Palety:** {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
+                return f"🚜 Palety: {pal_text} (po 40 pytlích / 1 tuna)"
+            return f"🚜 Palety: {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
     if re.search(r'\b5\s*l\b', popis, re.IGNORECASE):
         kanystru = qty / 5.0
         krabic = kanystru / 4.0
@@ -160,8 +326,8 @@ def paletova_kalkulacka(popis, qty):
             zb_krabic = int(krabic % 32)
             pal_text = sklonuj(palet, 'paleta')
             if zb_krabic == 0:
-                return f"🚜 **Palety:** {pal_text} (po 32 krabicích / 640 l)"
-            return f"🚜 **Palety:** {pal_text} + {sklonuj(zb_krabic, 'krabice')} navrch"
+                return f"🚜 Palety: {pal_text} (po 32 krabicích / 640 l)"
+            return f"🚜 Palety: {pal_text} + {sklonuj(zb_krabic, 'krabice')} navrch"
     return None
 
 def format_expirace_semafor(dt_obj):
@@ -238,7 +404,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         vysledky_df = vysledky_df[vysledky_df['Kód lokace'].str.startswith('K.', na=False)]
 
     if vysledky_df.empty:
-        st.warning(f"Pro '{dotaz_popis}' nebyl pro zvolený filtr '{vybrana_lokace}' nalezen žádný zůstatek.")
+        st.warning(f"Pro výraz **'{dotaz_popis}'** nebyl na vybraném skladu **'{vybrana_lokace}'** nalezen žádný zůstatek.")
         return
 
     produkty = vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False)
@@ -248,21 +414,48 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         baleni_celkem = prepocet_na_baleni(nazev_zbozi, celkem_ks)
         palety_text = paletova_kalkulacka(nazev_zbozi, celkem_ks)
 
-        st.markdown(f"### {nazev_zbozi} `[{kategorie}]`")
-        st.caption(f"Kód zboží: `{kod_zbozi}`")
-        st.success(f"**Celkem skladem:** {celkem_ks:g} jednotek | **📦 {baleni_celkem}**")
-        
-        if palety_text:
-            st.info(palety_text)
+        # KARTA PRODUKTU
+        st.markdown(f"""
+        <div class="product-card">
+            <div class="product-title">
+                <span>{nazev_zbozi}</span>
+                <span class="category-badge">{kategorie}</span>
+            </div>
+            <div style="margin-bottom: 12px;">
+                <span class="product-code">KÓD: {kod_zbozi}</span>
+            </div>
+            <div class="stock-grid">
+                <div class="stock-box">
+                    <div class="stock-box-label">Skladem celkem</div>
+                    <div class="stock-box-value">{celkem_ks:g} j.</div>
+                </div>
+                <div class="stock-box">
+                    <div class="stock-box-label">V přepočtu</div>
+                    <div class="stock-box-value" style="font-size: 0.95rem;">{baleni_celkem}</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
+        if palety_text:
+            st.markdown(f'<div class="pallet-banner">{palety_text}</div>', unsafe_allow_html=True)
+
+        # FEFO RÁDCE VÝSTRAŽNÝ BOX
         valid_exp = skupina[skupina['Datum_Exp_Obj'].notna()].sort_values('Datum_Exp_Obj')
         if not valid_exp.empty:
             fefo_top = valid_exp.iloc[0]
-            st.warning(
-                f"👉 **DOPORUČENÍ K VÝDEJI (FEFO):** Přednostně vyskladni šarži `{fefo_top['Číslo šarže']}` "
-                f"na lokaci **{fefo_top['Lokace_Nazev']}** (nejdřívější expirace: {fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')})!"
-            )
+            st.markdown(f"""
+            <div class="fefo-banner">
+                <div class="fefo-icon">👉</div>
+                <div class="fefo-text">
+                    <strong>DOPORUČENÍ K VÝDEJI (FEFO):</strong><br>
+                    Přednostně vyskladni šarži <span class="fefo-badge">{fefo_top['Číslo šarže']}</span> 
+                    na lokaci <strong>{fefo_top['Lokace_Nazev']}</strong> 
+                    (nejdřívější expirace: <strong>{fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')}</strong>).
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
+        # PŘEHLEDNÁ TABULKA ŠARŽÍ
         prehled = skupina.copy()
         prehled['Krabice / Balení'] = prehled.apply(
             lambda r: prepocet_na_baleni(r['Popis'], r['Zůstatek (množství)']), axis=1
@@ -275,16 +468,21 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         tabulka.rename(columns={'Lokace_Nazev': 'Lokace skladu'}, inplace=True)
 
         st.dataframe(tabulka, use_container_width=True, hide_index=True)
-        st.write("---")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- HLAVNÍ APLIKACE ---
+st.markdown("""
+<div class="main-header">
+    <h1>📦 Skladový asistent</h1>
+    <span style="font-size: 0.85rem; opacity: 0.9;">Mobilní terminál</span>
+</div>
+""", unsafe_allow_html=True)
+
 if not os.path.exists(EXCEL_FILE):
     st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho prosím v záložce 'Aktualizovat sklad'.")
     stock_df = pd.DataFrame()
 else:
     stock_df = load_stock_data(EXCEL_FILE)
-
-st.title("📦 Skladový asistent")
 
 # Přepínač skladů
 vybrana_lokace = st.radio(
@@ -294,68 +492,66 @@ vybrana_lokace = st.radio(
 )
 
 tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
-    "📷 Vyfotit obal", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat sklad"
+    "📷 Vyfotit obal", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat"
 ])
 
 # 1. ZÁLOŽKA: VYFOTIT OBAL
 with tab_foto:
     st.caption("Namiř foťák na kanystr, pytel nebo krabici a klepni na spoušť:")
-    foto_obal = st.camera_input("Vyfotit obal")
+    foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
 
     if foto_obal and not stock_df.empty:
         image = Image.open(foto_obal)
-        st.info("Analyzuji fotografii pomocí AI...")
+        with st.spinner("AI čte etiketu a hledá zásoby..."):
+            prompt = """
+            Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
+            Najdi:
+            1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
+            2. Kód zboží, pokud je vidět (např. CHE01414).
 
-        prompt = """
-        Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
-        Najdi:
-        1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
-        2. Kód zboží, pokud je vidět (např. CHE01414).
+            Vrať výhradně čistý JSON:
+            {"nazev": "SEM_NAZEV", "kod": null}
+            """
 
-        Vrať výhradně čistý JSON:
-        {"nazev": "SEM_NAZEV", "kod": null}
-        """
+            modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
+            response = None
+            posledni_chyba = None
 
-        # Jen aktuální, plně funkční modely bez 2.5
-        modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
-        response = None
-        posledni_chyba = None
+            client = genai.Client(api_key=API_KEY)
 
-        client = genai.Client(api_key=API_KEY)
+            for model_name in modely_k_vyzkouseni:
+                for pokus in range(2):
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=[image, prompt]
+                        )
+                        if response and response.text:
+                            break
+                    except Exception as e:
+                        posledni_chyba = e
+                        time.sleep(1.2)
+                if response and response.text:
+                    break
 
-        for model_name in modely_k_vyzkouseni:
-            for pokus in range(2):
+            if not response or not response.text:
+                st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
+            else:
+                cisty_text = response.text.strip().replace("```json", "").replace("```", "").strip()
                 try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[image, prompt]
-                    )
-                    if response and response.text:
-                        break
-                except Exception as e:
-                    posledni_chyba = e
-                    time.sleep(1.5)
-            if response and response.text:
-                break
+                    data = json.loads(cisty_text)
+                    hledany_nazev = data.get("nazev", "").strip()
+                    hledany_kod = data.get("kod")
 
-        if not response or not response.text:
-            st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
-        else:
-            cisty_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            try:
-                data = json.loads(cisty_text)
-                hledany_nazev = data.get("nazev", "").strip()
-                hledany_kod = data.get("kod")
+                    st.markdown(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
 
-                st.write(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
+                    mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
+                    if hledany_kod:
+                        mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
 
-                mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
-                if hledany_kod:
-                    mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
-
-                zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
-            except Exception as parse_err:
-                st.error(f"Nepodařilo se zpracovat odpověď: {cisty_text}")
+                    zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
+                except Exception as parse_err:
+                    st.error(f"Nepodařilo se zpracovat odpověď AI: {cisty_text}")
 
 # 2. ZÁLOŽKA: HLEDÁNÍ A NAŠEPTÁVAČ
 with tab_rucni:
@@ -366,11 +562,11 @@ with tab_rucni:
             "⚡ Našeptávač (začni psát název přípravku):",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš pár písmen (např. Folpan, Bizon, Ninja)..."
+            placeholder="Napiš pár písmen (např. Folpan, Bizon, Ninja, Caryx)..."
         )
 
-        st.caption("— NEBO hledej podle čísla šarže či kódu —")
-        volny_text = st.text_input("Zadej číslo šarže nebo kód zboží:", placeholder="např. 7426507, CHE00912...")
+        st.caption("— NEBO hledej podle čísla šarže či kódu zboží —")
+        volny_text = st.text_input("Zadej číslo šarže nebo kód:", placeholder="např. 7426507, CHE00912...")
 
         if vybrany_produkt:
             vysledky = stock_df[stock_df['Popis'] == vybrany_produkt]
@@ -385,7 +581,7 @@ with tab_rucni:
             vysledky = stock_df[mask_text]
             zobraz_vysledky(vysledky, text_clean, vybrana_lokace)
         else:
-            st.info("👆 Vyber přípravek z našeptávače výše nebo zadej šarži do pole.")
+            st.info("👆 Vyber přípravek z našeptávače výše nebo napiš šarži do pole.")
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
@@ -396,9 +592,9 @@ with tab_nesrovnalosti:
         polozka_hledat = st.text_input("Název nebo kód zboží:")
         lokace_zadat = st.selectbox("Kde zboží leží:", list(LOC_MAP.values()) + ["🤝 Komise"])
         sarze_zadat = st.text_input("Číslo šarže (pokud je známo):")
-        stav_system = st.number_input("Stav v aplikaci / systému (ks/l):", min_value=0.0, step=1.0)
+        stav_system = st.number_input("Stav v systému (ks/l):", min_value=0.0, step=1.0)
         stav_realita = st.number_input("Fyzicky napočítáno v regálu (ks/l):", min_value=0.0, step=1.0)
-        poznamka = st.text_area("Poznámka (např. poškozený kanystr, chybí 2 krabice):")
+        poznamka = st.text_area("Poznámka (např. poškozený obal, chybí krabice):")
 
         odeslat = st.form_submit_button("💾 Uložit hlášení")
         if odeslat:
@@ -428,7 +624,7 @@ with tab_nesrovnalosti:
 # 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
 with tab_admin:
     st.subheader("🔄 Aktualizace skladových dat")
-    st.caption("Zde můžeš nahrát nový čerstvý export z Business Central.")
+    st.caption("Nahraj čerstvý export z Business Central pro aktualizaci zásob.")
     
     novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
     if novy_soubor is not None:
@@ -436,5 +632,5 @@ with tab_admin:
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             st.cache_data.clear()
-            st.success("✅ Sklad byl úspěšně aktualizován novými daty!")
+            st.success("✅ Sklad byl úspěšně aktualizován!")
             st.rerun()
