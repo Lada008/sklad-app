@@ -16,16 +16,18 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- MODERNÍ SKLADOVÝ DESIGN S VYSOKÝM KONTRASTEM (CSS) ---
+# --- ČISTÝ MODERNÍ DESIGN BEZ USEKNUTÝCH PRVKŮ ---
 st.markdown("""
 <style>
     .stApp {
-        background-color: #f4f6f8 !important;
-        color: #1e293b !important;
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
     }
     p, span, label, div[data-testid="stMarkdownContainer"] p {
-        color: #1e293b !important;
+        color: #0f172a !important;
     }
+
+    /* Horní lišta */
     .main-header {
         background: linear-gradient(135deg, #1b4d3e 0%, #2e7d32 100%);
         padding: 14px 18px;
@@ -38,62 +40,72 @@ st.markdown("""
     }
     .main-header h1 {
         color: #ffffff !important;
-        font-size: 1.4rem !important;
+        font-size: 1.35rem !important;
         margin: 0 !important;
         font-weight: 700 !important;
     }
     .main-header span {
         color: #ffffff !important;
         font-size: 0.85rem;
+        opacity: 0.9;
     }
+
+    /* Přepínač skladů */
     div[data-testid="stRadio"] > label {
         color: #0f172a !important;
         font-weight: 700 !important;
-        font-size: 0.95rem !important;
+        font-size: 0.92rem !important;
     }
     div[data-testid="stRadio"] > div {
         background: #ffffff !important;
         padding: 8px 12px !important;
         border-radius: 12px !important;
         border: 1px solid #cbd5e1 !important;
-        gap: 16px !important;
+        gap: 12px !important;
     }
     div[data-testid="stRadio"] label p {
         color: #1e293b !important;
         font-weight: 600 !important;
     }
+
+    /* Čisté a vyvážené záložky */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
+        gap: 4px;
         background-color: transparent;
+        border-bottom: 2px solid #e2e8f0;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #ffffff !important;
+        background-color: transparent !important;
+        border: none !important;
+        padding: 10px 14px !important;
+        font-weight: 600 !important;
         border-radius: 8px 8px 0 0 !important;
-        padding: 8px 18px !important;
-        border: 1px solid #cbd5e1 !important;
-        border-bottom: none !important;
-        font-size: 1.1rem !important;
     }
     .stTabs [data-baseweb="tab"] p {
-        color: #334155 !important;
-        font-weight: 700 !important;
+        color: #64748b !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #2e7d32 !important;
+        background-color: #ffffff !important;
+        border-bottom: 3px solid #2e7d32 !important;
     }
     .stTabs [aria-selected="true"] p {
-        color: #ffffff !important;
+        color: #2e7d32 !important;
+        font-weight: 800 !important;
     }
+
+    /* Karta produktu */
     .product-card {
         background: #ffffff !important;
         border-radius: 14px;
-        padding: 18px 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-        border: 1px solid #cbd5e1;
+        padding: 18px;
+        margin-bottom: 18px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.05);
+        border: 1px solid #e2e8f0;
     }
     .product-title {
-        font-size: 1.35rem;
+        font-size: 1.3rem;
         font-weight: 800;
         color: #0f172a !important;
         margin-bottom: 6px;
@@ -113,75 +125,79 @@ st.markdown("""
         font-weight: 600;
     }
     .category-badge {
-        font-size: 0.85rem;
-        padding: 4px 12px;
+        font-size: 0.82rem;
+        padding: 4px 10px;
         border-radius: 20px;
         font-weight: 700;
         background: #dcfce7 !important;
         color: #166534 !important;
         border: 1px solid #bbf7d0;
     }
+
+    /* Dlaždice s čísly */
     .stock-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 12px;
-        margin: 14px 0;
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+        gap: 10px;
+        margin: 12px 0;
     }
     .stock-box {
         background: #f8fafc !important;
-        border: 1px solid #cbd5e1 !important;
+        border: 1px solid #e2e8f0 !important;
         border-radius: 10px;
-        padding: 12px;
+        padding: 10px;
         text-align: center;
     }
     .stock-box-label {
-        font-size: 0.75rem !important;
+        font-size: 0.72rem !important;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
         color: #64748b !important;
         font-weight: 700 !important;
-        margin-bottom: 4px;
+        margin-bottom: 2px;
     }
     .stock-box-value {
-        font-size: 1.25rem !important;
+        font-size: 1.2rem !important;
         font-weight: 800 !important;
         color: #0f172a !important;
     }
+
+    /* FEFO doporučení */
     .fefo-banner {
         background: #fffbeb !important;
-        border: 2px solid #f59e0b !important;
-        border-radius: 12px;
-        padding: 14px 16px;
-        margin: 14px 0;
+        border: 1.5px solid #f59e0b !important;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 12px 0;
         display: flex;
         align-items: flex-start;
-        gap: 12px;
+        gap: 10px;
     }
     .fefo-icon {
-        font-size: 1.6rem;
+        font-size: 1.4rem;
         line-height: 1;
     }
     .fefo-text {
-        font-size: 0.95rem !important;
+        font-size: 0.92rem !important;
         color: #78350f !important;
-        line-height: 1.45;
+        line-height: 1.4;
     }
     .fefo-badge {
         background: #f59e0b !important;
         color: #ffffff !important;
-        padding: 2px 8px;
+        padding: 2px 7px;
         border-radius: 6px;
         font-weight: 800;
         font-family: monospace;
     }
+
     .pallet-banner {
         background: #eff6ff !important;
-        border: 1.5px solid #93c5fd !important;
-        border-radius: 10px;
-        padding: 10px 14px;
-        margin: 10px 0;
+        border: 1px solid #bfdbfe !important;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin: 8px 0;
         color: #1e3a8a !important;
-        font-size: 0.95rem !important;
+        font-size: 0.92rem !important;
         font-weight: 700 !important;
     }
 </style>
@@ -411,7 +427,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         vysledky_df = vysledky_df[vysledky_df['Kód lokace'].str.startswith('K.', na=False)]
 
     if vysledky_df.empty:
-        st.warning(f"Pro výraz **'{dotaz_popis}'** nebyl na vybraném skladu **'{vybrana_lokace}'** nalezen žádný zůstatek.")
+        st.warning(f"Pro výraz **'{dotaz_popis}'** nebyl na vybraném skladu nalezen žádný zůstatek.")
         return
 
     produkty = vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False)
@@ -483,7 +499,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if not os.path.exists(EXCEL_FILE):
-    st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho prosím v záložce 'Aktualizovat'.")
+    st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho v záložce 'Aktualizovat'.")
     stock_df = pd.DataFrame()
 else:
     stock_df = load_stock_data(EXCEL_FILE)
@@ -494,14 +510,14 @@ vybrana_lokace = st.radio(
     horizontal=True
 )
 
-# Záložky s ikonami
+# Sjednocené, čisté záložky
 tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
-    "📷", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat"
+    "📷 Foto", "🔍 Hledat", "⚠️ Hlášení", "🔄 Data"
 ])
 
 # 1. ZÁLOŽKA: FOCENÍ
 with tab_foto:
-    st.write("**Namiř foťák na kanystr, pytel nebo krabici a klepni na spoušť:**")
+    st.write("**Namiř foťák na obal a klepni na spoušť:**")
     foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
 
     if foto_obal and not stock_df.empty:
@@ -563,14 +579,14 @@ with tab_rucni:
         seznam_zbozi = sorted(stock_df['Popis'].dropna().unique().tolist())
 
         vybrany_produkt = st.selectbox(
-            "⚡ Našeptávač (začni psát název přípravku):",
+            "⚡ Našeptávač:",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš pár písmen (např. Folpan, Bizon, Ninja, Caryx)..."
+            placeholder="Napiš název (např. Folpan, Bizon, Ninja)..."
         )
 
-        st.caption("— NEBO hledej podle čísla šarže či kódu zboží —")
-        volny_text = st.text_input("Zadej číslo šarže nebo kód:", placeholder="např. 7426507, CHE00912...")
+        st.caption("— NEBO hledej podle šarže či kódu —")
+        volny_text = st.text_input("Zadej číslo šarže nebo kód:", placeholder="např. 7426507...")
 
         if vybrany_produkt:
             vysledky = stock_df[stock_df['Popis'] == vybrany_produkt]
@@ -585,8 +601,58 @@ with tab_rucni:
             vysledky = stock_df[mask_text]
             zobraz_vysledky(vysledky, text_clean, vybrana_lokace)
         else:
-            st.info("👆 Vyber přípravek z našeptávače výše nebo napiš šarži do pole.")
+            st.info("👆 Vyber přípravek z našeptávače nebo napiš šarži.")
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
     st.subheader("Hlášení")
+    st.caption("Nesedí stav na skladě s realitou? Zapiš to sem pro vedoucího skladu.")
+
+    with st.form("form_nesrovnalost", clear_on_submit=True):
+        polozka_hledat = st.text_input("Název nebo kód zboží:")
+        lokace_zadat = st.selectbox("Kde zboží leží:", list(LOC_MAP.values()) + ["🤝 Komise"])
+        sarze_zadat = st.text_input("Číslo šarže:")
+        stav_system = st.number_input("Stav v systému (ks/l):", min_value=0.0, step=1.0)
+        stav_realita = st.number_input("Fyzicky napočítáno (ks/l):", min_value=0.0, step=1.0)
+        poznamka = st.text_area("Poznámka:")
+
+        odeslat = st.form_submit_button("💾 Uložit hlášení")
+        if odeslat:
+            if polozka_hledat:
+                uloz_nesrovnalost(
+                    "", polozka_hledat, lokace_zadat, sarze_zadat,
+                    stav_system, stav_realita, poznamka
+                )
+                st.success("✅ Nesrovnalost byla uložena.")
+            else:
+                st.error("Vyplň prosím název zboží.")
+
+    if os.path.exists(NESROVNALOSTI_FILE):
+        st.write("---")
+        st.subheader("Protokol chyb")
+        df_log = pd.read_csv(NESROVNALOSTI_FILE, encoding='utf-8-sig')
+        st.dataframe(df_log.tail(10), use_container_width=True, hide_index=True)
+
+        with open(NESROVNALOSTI_FILE, "r", encoding="utf-8-sig") as f_down:
+            csv_obsah = f_down.read()
+
+        st.download_button(
+            label="📥 Stáhnout protokol (CSV)",
+            data=csv_obsah,
+            file_name="nesrovnalosti_sklad.csv",
+            mime="text/csv"
+        )
+
+# 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
+with tab_admin:
+    st.subheader("Aktualizace skladových dat")
+    st.caption("Nahraj čerstvý export z Business Central.")
+    
+    novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
+    if novy_soubor is not None:
+        if st.button("🚀 Přepsat data skladu a aktualizovat", type="primary"):
+            with open(EXCEL_FILE, "wb") as f:
+                f.write(novy_soubor.getbuffer())
+            st.cache_data.clear()
+            st.success("✅ Sklad byl úspěšně aktualizován!")
+            st.rerun()
