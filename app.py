@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from google import genai
+from google.genai import types
 from PIL import Image
 import json
 import os
@@ -196,7 +197,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API_KEY = st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JmbhByHR5ACrJp3NAIXu3mmONbyWT4hdMt_iVrqr8kmQ")
+API_KEY = st.secrets.get("GEMINI_API_KEY")
+if not API_KEY:
+    st.error("🚨 Chybí API klíč pro Gemini! Zkontroluj nastavení secrets v aplikaci.")
+    st.stop()
+
 EXCEL_FILE = "sklad.xlsx"
 NESROVNALOSTI_FILE = "nesrovnalosti.csv"
 
@@ -370,7 +375,11 @@ def load_stock_data(filepath):
         'Číslo šarže', 'Datum expirace', 'Zůstatek (množství)',
         'Zúčtovací datum', 'Množství'
     ]
-    df = pd.read_excel(filepath, usecols=cols)
+    try:
+        df = pd.read_excel(filepath, usecols=cols)
+    except ValueError:
+        st.error("❌ Nahraný Excel nemá správnou strukturu (chybí potřebné sloupce).")
+        return pd.DataFrame()
 
     prijmy = df[df['Množství'] > 0].copy()
     prijmy['Číslo šarže'] = prijmy['Číslo šarže'].fillna('-')
@@ -503,12 +512,11 @@ vybrana_lokace = st.radio(
     horizontal=True
 )
 
-# 1. ZÁLOŽKA: HLEDAT JE PRVNÍ A VÝCHOZÍ!
 tab_rucni, tab_foto, tab_nesrovnalosti, tab_admin = st.tabs([
     "🔍 Hledat", "📷 Foto", "⚠️ Hlášení", "🔄 Data"
 ])
 
-# 1. HLEDÁNÍ (OTEVŘE SE ROVNOU PŘI STARTU)
+# 1. HLEDÁNÍ
 with tab_rucni:
     if not stock_df.empty:
         seznam_zbozi = sorted(stock_df['Popis'].dropna().unique().tolist())
@@ -538,7 +546,7 @@ with tab_rucni:
         else:
             st.info("👆 Vyber přípravek z našeptávače nebo napiš šarži.")
 
-# 2. FOCENÍ (AŽ DRUHÁ VOLBA, FOŤÁK ČEKÁ NA TLAČÍTKO)
+# 2. FOCENÍ
 with tab_foto:
     if "kamera_zapnuta" not in st.session_state:
         st.session_state.kamera_zapnuta = False
@@ -582,7 +590,11 @@ with tab_foto:
                         try:
                             response = client.models.generate_content(
                                 model=model_name,
-                                contents=[image, prompt]
+                                contents=[image, prompt],
+                                config=types.GenerateContentConfig(
+                                    response_mime_type="application/json",
+                                    temperature=0.1
+                                )
                             )
                             if response and response.text:
                                 break
@@ -595,9 +607,8 @@ with tab_foto:
                 if not response or not response.text:
                     st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
                 else:
-                    cisty_text = re.sub(r'```(?:json)?', '', response.text).strip()
                     try:
-                        data = json.loads(cisty_text)
+                        data = json.loads(response.text)
                         hledany_nazev = data.get("nazev", "").strip()
                         hledany_kod = data.get("kod")
 
@@ -609,7 +620,7 @@ with tab_foto:
 
                         zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
                     except Exception as parse_err:
-                        st.error(f"Nepodařilo se zpracovat odpověď AI: {cisty_text}")
+                        st.error(f"Nepodařilo se zpracovat odpověď AI: {response.text}")
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
