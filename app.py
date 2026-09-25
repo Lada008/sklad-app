@@ -30,9 +30,9 @@ st.markdown("""
 
     .main-header {
         background: linear-gradient(135deg, #1b4d3e 0%, #2e7d32 100%);
-        padding: 16px 20px;
-        border-radius: 14px;
-        margin-bottom: 16px;
+        padding: 14px 18px;
+        border-radius: 12px;
+        margin-bottom: 14px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         display: flex;
         align-items: center;
@@ -40,12 +40,13 @@ st.markdown("""
     }
     .main-header h1 {
         color: #ffffff !important;
-        font-size: 1.5rem !important;
+        font-size: 1.4rem !important;
         margin: 0 !important;
         font-weight: 700 !important;
     }
     .main-header span {
         color: #ffffff !important;
+        font-size: 0.85rem;
     }
 
     div[data-testid="stRadio"] > label {
@@ -65,6 +66,7 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
+    /* Záložky s ikonami */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: transparent;
@@ -72,9 +74,10 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         background-color: #ffffff !important;
         border-radius: 8px 8px 0 0 !important;
-        padding: 8px 16px !important;
+        padding: 8px 18px !important;
         border: 1px solid #cbd5e1 !important;
         border-bottom: none !important;
+        font-size: 1.1rem !important;
     }
     .stTabs [data-baseweb="tab"] p {
         color: #334155 !important;
@@ -494,17 +497,19 @@ if not os.path.exists(EXCEL_FILE):
 else:
     stock_df = load_stock_data(EXCEL_FILE)
 
+# Přepínač skladů
 vybrana_lokace = st.radio(
     "Filtrovat sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
     horizontal=True
 )
 
+# Záložky – focení má čistou ikonu 📷
 tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
-    "📷 Vyfotit obal", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat"
+    "📷", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat"
 ])
 
-# 1. ZÁLOŽKA: VYFOTIT OBAL
+# 1. ZÁLOŽKA: FOCENÍ
 with tab_foto:
     st.write("**Namiř foťák na kanystr, pytel nebo krabici a klepni na spoušť:**")
     foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
@@ -623,23 +628,3 @@ with tab_nesrovnalosti:
         st.dataframe(df_log.tail(10), use_container_width=True, hide_index=True)
 
         with open(NESROVNALOSTI_FILE, "rb") as f:
-            st.download_button(
-                label="📥 Stáhnout protokol nesrovnalostí (CSV)",
-                data=f,
-                file_name="nesrovnalosti_sklad.csv",
-                mime="text/csv"
-            )
-
-# 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
-with tab_admin:
-    st.subheader("🔄 Aktualizace skladových dat")
-    st.caption("Nahraj čerstvý export z Business Central pro aktualizaci zásob.")
-    
-    novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
-    if novy_soubor is not None:
-        if st.button("🚀 Přepsat data skladu a aktualizovat", type="primary"):
-            with open(EXCEL_FILE, "wb") as f:
-                f.write(novy_soubor.getbuffer())
-            st.cache_data.clear()
-            st.success("✅ Sklad byl úspěšně aktualizován!")
-            st.rerun()
