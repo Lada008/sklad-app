@@ -7,12 +7,13 @@ import os
 import re
 from datetime import datetime
 import csv
+import time
 
 st.set_page_config(page_title="Skladový asistent", page_icon="📦", layout="centered")
 
 # Bezpečné načtení API klíče (z cloudu nebo výchozí lokální)
 API_KEY = st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JmbhByHR5ACrJp3NAIXu3mmONbyWT4hdMt_iVrqr8kmQ")
-# Výchozí PIN pro vstup do aplikace (můžeš si ho změnit)
+# Výchozí PIN pro vstup do aplikace
 DEFAULT_PIN = st.secrets.get("APP_PIN", "1234")
 
 EXCEL_FILE = "sklad.xlsx"
@@ -42,7 +43,7 @@ LOC_MAP = {
     '151ST': '🏬 Staré Město',
     '151ZL': '🏬 Zlín',
     '151UB': '🏬 Uherský Brod',
-    '151SL': '🏬 Slavkov',
+    '151SL': '🏬 Slavičín',
     'NACESTE': '🚚 Na cestě'
 }
 
@@ -161,6 +162,7 @@ def prepocet_na_baleni(popis, qty):
 def paletova_kalkulacka(popis, qty):
     if not isinstance(popis, str) or qty is None:
         return None
+    # Pytle 25 kg (40 pytlů = 1 tuna)
     if '25' in popis and 'kg' in popis.lower():
         pytle = qty / 25.0
         if pytle >= 30:
@@ -170,6 +172,7 @@ def paletova_kalkulacka(popis, qty):
             if zb_pytle == 0:
                 return f"🚜 **Palety:** {pal_text} (po 40 pytlích / 1 tuna)"
             return f"🚜 **Palety:** {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
+    # Kanystry 5 L (4 ks v krabici, 32 krabic na paletě = 640 L)
     if re.search(r'\b5\s*l\b', popis, re.IGNORECASE):
         kanystru = qty / 5.0
         krabic = kanystru / 4.0
@@ -248,6 +251,7 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
         writer.writerow(zaznam)
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
+    # Filtrace podle vybrané lokace
     if vybrana_lokace == 'Boršice':
         vysledky_df = vysledky_df[vysledky_df['Kód lokace'] == '151BO']
     elif vybrana_lokace == 'Valmez':
@@ -259,6 +263,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         st.warning(f"Pro '{dotaz_popis}' nebyl pro zvolený filtr '{vybrana_lokace}' nalezen žádný zůstatek.")
         return
 
+    # Seskupení pro každý produkt zvlášť (zabraňuje míchání různých přípravků dohromady)
     produkty = vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False)
     
     for (kod_zbozi, nazev_zbozi, kategorie), skupina in produkty:
@@ -273,6 +278,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         if palety_text:
             st.info(palety_text)
 
+        # FEFO RÁDCE: Kterou šarži naložit dřív pro tento produkt
         valid_exp = skupina[skupina['Datum_Exp_Obj'].notna()].sort_values('Datum_Exp_Obj')
         if not valid_exp.empty:
             fefo_top = valid_exp.iloc[0]
@@ -281,6 +287,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
                 f"na lokaci **{fefo_top['Lokace_Nazev']}** (nejdřívější expirace: {fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')})!"
             )
 
+        # Tabulka šarží tohoto konkrétního produktu
         prehled = skupina.copy()
         prehled['Krabice / Balení'] = prehled.apply(
             lambda r: prepocet_na_baleni(r['Popis'], r['Zůstatek (množství)']), axis=1
@@ -304,7 +311,7 @@ else:
 
 st.title("📦 Skladový asistent")
 
-# Přepínač skladů
+# Přepínač skladů přímo nahoře
 vybrana_lokace = st.radio(
     "Filtrovat sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
@@ -330,35 +337,51 @@ with tab_foto:
         prompt = """
         Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
         Najdi:
-        1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN).
+        1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX).
         2. Kód zboží, pokud je vidět (např. CHE01414).
 
         Vrať výhradně čistý JSON:
         {"nazev": "SEM_NAZEV", "kod": null}
         """
 
-        try:
-            client = genai.Client(api_key=API_KEY)
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=[image, prompt]
-            )
+        # Rychlý model a záložní modely proti chybě 503
+        modely_k_vyzkouseni = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+        response = None
+        posledni_chyba = None
 
+        client = genai.Client(api_key=API_KEY)
+
+        for model_name in modely_k_vyzkouseni:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[image, prompt]
+                )
+                if response and response.text:
+                    break
+            except Exception as e:
+                posledni_chyba = e
+                time.sleep(1)
+                continue
+
+        if not response or not response.text:
+            st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
+        else:
             cisty_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-            data = json.loads(cisty_text)
-            hledany_nazev = data.get("nazev", "").strip()
-            hledany_kod = data.get("kod")
+            try:
+                data = json.loads(cisty_text)
+                hledany_nazev = data.get("nazev", "").strip()
+                hledany_kod = data.get("kod")
 
-            st.write(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
+                st.write(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
 
-            mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
-            if hledany_kod:
-                mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
+                mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
+                if hledany_kod:
+                    mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
 
-            zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
-
-        except Exception as err:
-            st.error(f"Chyba při komunikaci s AI: {err}")
+                zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
+            except Exception as parse_err:
+                st.error(f"Nepodařilo se zpracovat odpověď: {cisty_text}")
 
 # 2. ZÁLOŽKA: HLEDÁNÍ A NAŠEPTÁVAČ
 with tab_rucni:
@@ -369,7 +392,7 @@ with tab_rucni:
             "⚡ Našeptávač (začni psát název přípravku):",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš pár písmen (např. Folpan, Bizon, Sekator)..."
+            placeholder="Napiš pár písmen (např. Folpan, Bizon, Sekator, Caryx)..."
         )
 
         st.caption("— NEBO hledej podle čísla šarže či kódu —")
@@ -431,7 +454,7 @@ with tab_nesrovnalosti:
 # 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
 with tab_admin:
     st.subheader("🔄 Aktualizace skladových dat")
-    st.caption("Zde můžeš nahrát nový čerstvý export z Business Central bez zásahu do kódu.")
+    st.caption("Zde můžeš nahrát nový čerstvý export z Business Central bez nutnosti zasahovat do kódu.")
     
     novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
     if novy_soubor is not None:
@@ -439,5 +462,5 @@ with tab_admin:
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             st.cache_data.clear()
-            st.success("✅ Sklad byl úspěšně aktualizován!")
+            st.success("✅ Sklad byl úspěšně aktualizován novými daty!")
             st.rerun()
