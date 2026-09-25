@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- ČISTÝ MODERNÍ DESIGN BEZ USEKNUTÝCH PRVKŮ ---
+# --- ČISTÝ MODERNÍ DESIGN ---
 st.markdown("""
 <style>
     .stApp {
@@ -27,7 +27,6 @@ st.markdown("""
         color: #0f172a !important;
     }
 
-    /* Horní lišta */
     .main-header {
         background: linear-gradient(135deg, #1b4d3e 0%, #2e7d32 100%);
         padding: 14px 18px;
@@ -50,7 +49,6 @@ st.markdown("""
         opacity: 0.9;
     }
 
-    /* Přepínač skladů */
     div[data-testid="stRadio"] > label {
         color: #0f172a !important;
         font-weight: 700 !important;
@@ -68,7 +66,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Čisté a vyvážené záložky */
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
         background-color: transparent;
@@ -78,7 +75,6 @@ st.markdown("""
         background-color: transparent !important;
         border: none !important;
         padding: 10px 14px !important;
-        font-weight: 600 !important;
         border-radius: 8px 8px 0 0 !important;
     }
     .stTabs [data-baseweb="tab"] p {
@@ -95,7 +91,6 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Karta produktu */
     .product-card {
         background: #ffffff !important;
         border-radius: 14px;
@@ -134,7 +129,6 @@ st.markdown("""
         border: 1px solid #bbf7d0;
     }
 
-    /* Dlaždice s čísly */
     .stock-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -161,7 +155,6 @@ st.markdown("""
         color: #0f172a !important;
     }
 
-    /* FEFO doporučení */
     .fefo-banner {
         background: #fffbeb !important;
         border: 1.5px solid #f59e0b !important;
@@ -499,7 +492,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if not os.path.exists(EXCEL_FILE):
-    st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho v záložce 'Aktualizovat'.")
+    st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho v záložce 'Data'.")
     stock_df = pd.DataFrame()
 else:
     stock_df = load_stock_data(EXCEL_FILE)
@@ -510,70 +503,12 @@ vybrana_lokace = st.radio(
     horizontal=True
 )
 
-# Sjednocené, čisté záložky
-tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
-    "📷 Foto", "🔍 Hledat", "⚠️ Hlášení", "🔄 Data"
+# 1. ZÁLOŽKA: HLEDAT JE PRVNÍ A VÝCHOZÍ!
+tab_rucni, tab_foto, tab_nesrovnalosti, tab_admin = st.tabs([
+    "🔍 Hledat", "📷 Foto", "⚠️ Hlášení", "🔄 Data"
 ])
 
-# 1. ZÁLOŽKA: FOCENÍ
-with tab_foto:
-    st.write("**Namiř foťák na obal a klepni na spoušť:**")
-    foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
-
-    if foto_obal and not stock_df.empty:
-        image = Image.open(foto_obal)
-        with st.spinner("AI čte etiketu a hledá zásoby..."):
-            prompt = """
-            Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
-            Najdi:
-            1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
-            2. Kód zboží, pokud je vidět (např. CHE01414).
-
-            Vrať výhradně čistý JSON:
-            {"nazev": "SEM_NAZEV", "kod": null}
-            """
-
-            modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
-            response = None
-            posledni_chyba = None
-
-            client = genai.Client(api_key=API_KEY)
-
-            for model_name in modely_k_vyzkouseni:
-                for pokus in range(2):
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=[image, prompt]
-                        )
-                        if response and response.text:
-                            break
-                    except Exception as e:
-                        posledni_chyba = e
-                        time.sleep(1.2)
-                if response and response.text:
-                    break
-
-            if not response or not response.text:
-                st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
-            else:
-                cisty_text = re.sub(r'```(?:json)?', '', response.text).strip()
-                try:
-                    data = json.loads(cisty_text)
-                    hledany_nazev = data.get("nazev", "").strip()
-                    hledany_kod = data.get("kod")
-
-                    st.markdown(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
-
-                    mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
-                    if hledany_kod:
-                        mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
-
-                    zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
-                except Exception as parse_err:
-                    st.error(f"Nepodařilo se zpracovat odpověď AI: {cisty_text}")
-
-# 2. ZÁLOŽKA: HLEDÁNÍ A NAŠEPTÁVAČ
+# 1. HLEDÁNÍ (OTEVŘE SE ROVNOU PŘI STARTU)
 with tab_rucni:
     if not stock_df.empty:
         seznam_zbozi = sorted(stock_df['Popis'].dropna().unique().tolist())
@@ -602,6 +537,79 @@ with tab_rucni:
             zobraz_vysledky(vysledky, text_clean, vybrana_lokace)
         else:
             st.info("👆 Vyber přípravek z našeptávače nebo napiš šarži.")
+
+# 2. FOCENÍ (AŽ DRUHÁ VOLBA, FOŤÁK ČEKÁ NA TLAČÍTKO)
+with tab_foto:
+    if "kamera_zapnuta" not in st.session_state:
+        st.session_state.kamera_zapnuta = False
+
+    if not st.session_state.kamera_zapnuta:
+        st.write("")
+        st.write("Chceš vyfotit etiketu nebo krabici?")
+        if st.button("📸 Spustit fotoaparát", use_container_width=True, type="primary"):
+            st.session_state.kamera_zapnuta = True
+            st.rerun()
+    else:
+        if st.button("✕ Zavřít fotoaparát", use_container_width=True):
+            st.session_state.kamera_zapnuta = False
+            st.rerun()
+
+        st.write("**Namiř foťák na obal a klepni na spoušť:**")
+        st.caption("💡 TIP: Pokud se ti zapne přední selfie, otoč ji na zadní kameru ikonkou 📷↔ vpravo nahoře.")
+        foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
+
+        if foto_obal and not stock_df.empty:
+            image = Image.open(foto_obal)
+            with st.spinner("AI čte etiketu a hledá zásoby..."):
+                prompt = """
+                Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
+                Najdi:
+                1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
+                2. Kód zboží, pokud je vidět (např. CHE01414).
+
+                Vrať výhradně čistý JSON:
+                {"nazev": "SEM_NAZEV", "kod": null}
+                """
+
+                modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
+                response = None
+                posledni_chyba = None
+
+                client = genai.Client(api_key=API_KEY)
+
+                for model_name in modely_k_vyzkouseni:
+                    for pokus in range(2):
+                        try:
+                            response = client.models.generate_content(
+                                model=model_name,
+                                contents=[image, prompt]
+                            )
+                            if response and response.text:
+                                break
+                        except Exception as e:
+                            posledni_chyba = e
+                            time.sleep(1.2)
+                    if response and response.text:
+                        break
+
+                if not response or not response.text:
+                    st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
+                else:
+                    cisty_text = re.sub(r'```(?:json)?', '', response.text).strip()
+                    try:
+                        data = json.loads(cisty_text)
+                        hledany_nazev = data.get("nazev", "").strip()
+                        hledany_kod = data.get("kod")
+
+                        st.markdown(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
+
+                        mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
+                        if hledany_kod:
+                            mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
+
+                        zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
+                    except Exception as parse_err:
+                        st.error(f"Nepodařilo se zpracovat odpověď AI: {cisty_text}")
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
