@@ -43,7 +43,7 @@ LOC_MAP = {
     '151ST': '🏬 Staré Město',
     '151ZL': '🏬 Zlín',
     '151UB': '🏬 Uherský Brod',
-    '151SL': '🏬 Slavičín',
+    '151SL': '🏬 Slavkov',
     'NACESTE': '🚚 Na cestě'
 }
 
