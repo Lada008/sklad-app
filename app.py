@@ -589,4 +589,4 @@ with tab_rucni:
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("⚠️ Záznam nesrovnalosti v
+    st.subheader("Hlášení")
