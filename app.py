@@ -564,7 +564,7 @@ with tab_foto:
 
         st.write("**Namiř foťák na obal a klepni na spoušť:**")
         st.caption("💡 TIP: Pokud se ti zapne přední selfie, otoč ji na zadní kameru ikonkou 📷↔ vpravo nahoře.")
-        foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed", facing_mode="environment")
+        foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
 
         if foto_obal and not stock_df.empty:
             image = Image.open(foto_obal)
