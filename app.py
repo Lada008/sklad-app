@@ -11,10 +11,8 @@ import time
 
 st.set_page_config(page_title="Skladový asistent", page_icon="📦", layout="centered")
 
-# Bezpečné načtení API klíče (z cloudu nebo výchozí lokální)
+# Bezpečné načtení API klíče
 API_KEY = st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JmbhByHR5ACrJp3NAIXu3mmONbyWT4hdMt_iVrqr8kmQ")
-# Výchozí PIN pro vstup do aplikace
-DEFAULT_PIN = st.secrets.get("APP_PIN", "1234")
 
 EXCEL_FILE = "sklad.xlsx"
 NESROVNALOSTI_FILE = "nesrovnalosti.csv"
@@ -26,7 +24,7 @@ LOC_MAP = {
     '151ST': '🏬 Staré Město',
     '151ZL': '🏬 Zlín',
     '151UB': '🏬 Uherský Brod',
-    '151SL': '🏬 Slavkov',
+    '151SL': '🏬 Slavičín',
     'NACESTE': '🚚 Na cestě'
 }
 
@@ -145,7 +143,6 @@ def prepocet_na_baleni(popis, qty):
 def paletova_kalkulacka(popis, qty):
     if not isinstance(popis, str) or qty is None:
         return None
-    # Pytle 25 kg (40 pytlů = 1 tuna)
     if '25' in popis and 'kg' in popis.lower():
         pytle = qty / 25.0
         if pytle >= 30:
@@ -155,7 +152,6 @@ def paletova_kalkulacka(popis, qty):
             if zb_pytle == 0:
                 return f"🚜 **Palety:** {pal_text} (po 40 pytlích / 1 tuna)"
             return f"🚜 **Palety:** {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
-    # Kanystry 5 L (4 ks v krabici, 32 krabic na paletě = 640 L)
     if re.search(r'\b5\s*l\b', popis, re.IGNORECASE):
         kanystru = qty / 5.0
         krabic = kanystru / 4.0
@@ -234,7 +230,6 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
         writer.writerow(zaznam)
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
-    # Filtrace podle vybrané lokace
     if vybrana_lokace == 'Boršice':
         vysledky_df = vysledky_df[vysledky_df['Kód lokace'] == '151BO']
     elif vybrana_lokace == 'Valmez':
@@ -246,7 +241,6 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         st.warning(f"Pro '{dotaz_popis}' nebyl pro zvolený filtr '{vybrana_lokace}' nalezen žádný zůstatek.")
         return
 
-    # Seskupení pro každý produkt zvlášť (zabraňuje míchání různých přípravků dohromady)
     produkty = vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False)
     
     for (kod_zbozi, nazev_zbozi, kategorie), skupina in produkty:
@@ -261,7 +255,6 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         if palety_text:
             st.info(palety_text)
 
-        # FEFO RÁDCE: Kterou šarži naložit dřív pro tento produkt
         valid_exp = skupina[skupina['Datum_Exp_Obj'].notna()].sort_values('Datum_Exp_Obj')
         if not valid_exp.empty:
             fefo_top = valid_exp.iloc[0]
@@ -270,7 +263,6 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
                 f"na lokaci **{fefo_top['Lokace_Nazev']}** (nejdřívější expirace: {fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')})!"
             )
 
-        # Tabulka šarží tohoto konkrétního produktu
         prehled = skupina.copy()
         prehled['Krabice / Balení'] = prehled.apply(
             lambda r: prepocet_na_baleni(r['Popis'], r['Zůstatek (množství)']), axis=1
@@ -285,7 +277,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         st.dataframe(tabulka, use_container_width=True, hide_index=True)
         st.write("---")
 
-# --- HLAVNÍ APLIKACE PO PŘIHLÁŠENÍ ---
+# --- HLAVNÍ APLIKACE (BEZ NUTNOSTI PŘIHLAŠOVÁNÍ) ---
 if not os.path.exists(EXCEL_FILE):
     st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho prosím v záložce 'Aktualizovat sklad'.")
     stock_df = pd.DataFrame()
@@ -294,7 +286,7 @@ else:
 
 st.title("📦 Skladový asistent")
 
-# Přepínač skladů přímo nahoře
+# Přepínač skladů
 vybrana_lokace = st.radio(
     "Filtrovat sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
@@ -302,19 +294,16 @@ vybrana_lokace = st.radio(
 )
 
 tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
-    "📷 Vyfotit štítek", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat sklad"
+    "📷 Vyfotit obal", "🔍 Hledání", "⚠️ Hlášení", "🔄 Aktualizovat sklad"
 ])
 
-# 1. ZÁLOŽKA: FOCENÍ
+# 1. ZÁLOŽKA: VYFOTIT OBAL (JEDNÍM KLIKNUTÍM PŘÍMO Z KAMERY)
 with tab_foto:
-    uploaded_photo = st.file_uploader(
-        "Klepni sem a vyfoť štítek, kanystr nebo krabici", 
-        type=["jpg", "jpeg", "png"]
-    )
+    st.caption("Naměř foťák na kanystr, pytel nebo krabici a klepni na spoušť:")
+    foto_obal = st.camera_input("Vyfotit obal")
 
-    if uploaded_photo and not stock_df.empty:
-        image = Image.open(uploaded_photo)
-        st.image(image, caption="Pořízený snímek", use_container_width=True)
+    if foto_obal and not stock_df.empty:
+        image = Image.open(foto_obal)
         st.info("Analyzuji fotografii pomocí AI...")
 
         prompt = """
@@ -327,8 +316,8 @@ with tab_foto:
         {"nazev": "SEM_NAZEV", "kod": null}
         """
 
-        # Rychlý model a záložní modely proti chybě 503
-        modely_k_vyzkouseni = ["gemini-3.8-flash", "gemini-3.8-flash-lite"]
+        # Nejnovější doporučený model
+        modely_k_vyzkouseni = ["gemini-3.8-flash", "gemini-2.5-flash"]
         response = None
         posledni_chyba = None
 
@@ -375,7 +364,7 @@ with tab_rucni:
             "⚡ Našeptávač (začni psát název přípravku):",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš pár písmen (např. Folpan, Bizon, Sekator, Caryx)..."
+            placeholder="Napiš pár písmen (např. Folpan, Bizon, Belkar)..."
         )
 
         st.caption("— NEBO hledej podle čísla šarže či kódu —")
@@ -437,7 +426,7 @@ with tab_nesrovnalosti:
 # 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
 with tab_admin:
     st.subheader("🔄 Aktualizace skladových dat")
-    st.caption("Zde můžeš nahrát nový čerstvý export z Business Central bez nutnosti zasahovat do kódu.")
+    st.caption("Zde můžeš nahrát nový čerstvý export z Business Central.")
     
     novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
     if novy_soubor is not None:
