@@ -299,7 +299,7 @@ tab_foto, tab_rucni, tab_nesrovnalosti, tab_admin = st.tabs([
 
 # 1. ZÁLOŽKA: VYFOTIT OBAL (JEDNÍM KLIKNUTÍM PŘÍMO Z KAMERY)
 with tab_foto:
-    st.caption("Naměř foťák na kanystr, pytel nebo krabici a klepni na spoušť:")
+    st.caption("Namiř foťák na kanystr, pytel nebo krabici a klepni na spoušť:")
     foto_obal = st.camera_input("Vyfotit obal")
 
     if foto_obal and not stock_df.empty:
