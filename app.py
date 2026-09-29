@@ -215,13 +215,19 @@ LOC_MAP = {
     'NACESTE': '🚚 Na cestě'
 }
 
-def format_location_name(loc):
+def format_location_name(loc, prodejce):
     if not isinstance(loc, str):
         return '-'
     if loc in LOC_MAP:
         return LOC_MAP[loc]
     if loc.startswith('K.'):
-        return f"🤝 Komise {loc[2:].upper()}"
+        nazev_komise = loc[2:].upper()
+        prodejce_str = str(prodejce).strip().upper()
+        
+        if prodejce_str in ['TRČÁLEK', 'TRCALEK']:
+            return f"🤝 Komise {nazev_komise} (Valmez)"
+        else:
+            return f"🤝 Komise {nazev_komise} (Boršice)"
     return loc
 
 def format_category_name(cat):
@@ -373,7 +379,7 @@ def load_stock_data(filepath):
     cols = [
         'Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Kód Střediska', 
         'Číslo šarže', 'Datum expirace', 'Zůstatek (množství)',
-        'Zúčtovací datum', 'Množství'
+        'Zúčtovací datum', 'Množství', 'Prodejce Kód'
     ]
     try:
         df = pd.read_excel(filepath, usecols=cols)
@@ -390,7 +396,7 @@ def load_stock_data(filepath):
     df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
 
     grouped = df_active.groupby(
-        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Číslo šarže', 'Datum expirace'],
+        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Prodejce Kód', 'Číslo šarže', 'Datum expirace'],
         dropna=False,
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
@@ -402,8 +408,10 @@ def load_stock_data(filepath):
 
     grouped['Expirace (stav)'] = grouped['Datum_Exp_Obj'].apply(format_expirace_semafor)
     grouped['Poslední příjem'] = grouped['Datum_Prijmu_Obj'].dt.strftime('%d.%m.%Y').fillna('-')
-    grouped['Lokace_Nazev'] = grouped['Kód lokace'].apply(format_location_name)
     grouped['Kategorie_Nazev'] = grouped['Kód kategorie zboží'].apply(format_category_name)
+    
+    # Nově posíláme i kód prodejce pro správné pojmenování komise
+    grouped['Lokace_Nazev'] = grouped.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
 
     return grouped
 
@@ -422,9 +430,17 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
     if vybrana_lokace == 'Boršice':
-        vysledky_df = vysledky_df[vysledky_df['Kód lokace'] == '151BO']
+        # Boršice = 151BO + komise, které NEJSOU od Trčálka
+        mask_bo = (vysledky_df['Kód lokace'] == '151BO') 
+        mask_komise_bo = vysledky_df['Kód lokace'].str.startswith('K.', na=False) & ~vysledky_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
+        vysledky_df = vysledky_df[mask_bo | mask_komise_bo]
+        
     elif vybrana_lokace == 'Valmez':
-        vysledky_df = vysledky_df[vysledky_df['Kód lokace'] == '151VM']
+        # Valmez = 151VM + komise od Trčálka
+        mask_vm = (vysledky_df['Kód lokace'] == '151VM')
+        mask_komise_vm = vysledky_df['Kód lokace'].str.startswith('K.', na=False) & vysledky_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
+        vysledky_df = vysledky_df[mask_vm | mask_komise_vm]
+        
     elif vybrana_lokace == 'Jen Komise':
         vysledky_df = vysledky_df[vysledky_df['Kód lokace'].str.startswith('K.', na=False)]
 
@@ -579,7 +595,8 @@ with tab_foto:
                 {"nazev": "SEM_NAZEV", "kod": null}
                 """
 
-                modely_k_vyzkouseni = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"]
+                # Opravené verze modelů Gemini
+                modely_k_vyzkouseni = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
                 response = None
                 posledni_chyba = None
 
