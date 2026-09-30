@@ -229,6 +229,16 @@ def get_fyzicky_sklad(loc, prodejce):
         return 'Boršice'
     return loc_str
 
+def format_location_name(loc, prodejce):
+    if not isinstance(loc, str): return '-'
+    if loc in LOC_MAP: return LOC_MAP[loc]
+    if loc.startswith('K.'):
+        nazev_komise = loc[2:].upper()
+        prodejce_str = str(prodejce).strip().upper()
+        if prodejce_str in ['TRČÁLEK', 'TRCALEK']: return f"🤝 Komise {nazev_komise} (Valmez)"
+        else: return f"🤝 Komise {nazev_komise} (Boršice)"
+    return loc
+
 def format_category_name(cat):
     if not isinstance(cat, str): return 'Ostatní'
     c = cat.upper()
@@ -281,7 +291,6 @@ def prepocet_na_baleni(kod, popis, qty):
         return f"{qty:g} j."
 
     uom_base = 'l'
-    # Opravený regex, který chytí i 1KG nalepené na sebe
     if re.search(r'(?i)(kg|g)\b', popis): uom_base = 'kg'
 
     customs = load_custom_packs()
@@ -302,7 +311,6 @@ def prepocet_na_baleni(kod, popis, qty):
             if typ_obalu == "automaticky": typ_obalu = "baleni"
             return f"{qty:g} {uom_base} (~{pocet:.1f} {sklonuj(2, typ_obalu)} po {unit_size_base:g} {uom_base})"
 
-    # Automatická detekce (pokud není uloženo vlastní nastavení)
     m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m_mult:
         ks_v_baleni = float(m_mult.group(1))
@@ -410,65 +418,15 @@ def load_stock_data(filepath):
     df_active = df[df['Zůstatek (množství)'] > 0].copy()
     df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
 
-    mask_k = df_active['Kód lokace'].str.startswith('K.', na=False)
-    
-    non_k = df_active[~mask_k]
-    grouped_non_k = non_k.groupby(
-        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Prodejce Kód', 'Číslo šarže', 'Datum expirace'],
-        dropna=False,
-        as_index=False
-    ).agg({'Zůstatek (množství)': 'sum'})
+    # Fyzické rozdělení už jen podle toho, kdo tam figuruje (žádné dopočítávání pohybů)
+    df_active['Fyzicky_Sklad'] = df_active.apply(lambda row: get_fyzicky_sklad(row['Kód lokace'], row['Prodejce Kód']), axis=1)
+    df_active['Lokace_Nazev'] = df_active.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
 
-    k_locs = df_active[mask_k]
-    k_grouped = k_locs.groupby(
-        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Číslo šarže', 'Datum expirace'],
+    grouped = df_active.groupby(
+        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Fyzicky_Sklad', 'Lokace_Nazev', 'Číslo šarže', 'Datum expirace'],
         dropna=False,
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
-    
-    rok_start = pd.to_datetime(f"{datetime.now().year}-01-01")
-    df_rok = df[pd.to_datetime(df['Zúčtovací datum'], errors='coerce') >= rok_start].copy()
-    df_rok['Číslo šarže'] = df_rok['Číslo šarže'].fillna('-')
-    
-    trc_mask = df_rok['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
-    trc_batch_sums = df_rok[trc_mask].groupby(['Číslo zboží', 'Kód lokace', 'Číslo šarže'])['Množství'].sum().reset_index()
-    trc_batch_sums.rename(columns={'Množství': 'Trc_Mnozstvi'}, inplace=True)
-    
-    merged_k = pd.merge(k_grouped, trc_batch_sums, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
-    merged_k['Trc_Mnozstvi'] = merged_k['Trc_Mnozstvi'].fillna(0)
-    
-    final_rows = []
-    for _, row in merged_k.iterrows():
-        total = row['Zůstatek (množství)']
-        trc_share = max(0, min(row['Trc_Mnozstvi'], total)) 
-        ostatni_share = total - trc_share
-        
-        base_dict = {
-            'Číslo zboží': row['Číslo zboží'],
-            'Popis': row['Popis'],
-            'Kód kategorie zboží': row['Kód kategorie zboží'],
-            'Kód lokace': row['Kód lokace'],
-            'Číslo šarže': row['Číslo šarže'],
-            'Datum expirace': row['Datum expirace']
-        }
-        
-        if trc_share > 0:
-            d = base_dict.copy()
-            d['Prodejce Kód'] = 'TRČÁLEK'
-            d['Zůstatek (množství)'] = trc_share
-            final_rows.append(d)
-            
-        if ostatni_share > 0:
-            d = base_dict.copy()
-            d['Prodejce Kód'] = 'MAN'
-            d['Zůstatek (množství)'] = ostatni_share
-            final_rows.append(d)
-            
-    if not final_rows:
-        grouped = grouped_non_k
-    else:
-        grouped_k_final = pd.DataFrame(final_rows)
-        grouped = pd.concat([grouped_non_k, grouped_k_final], ignore_index=True)
 
     grouped = pd.merge(grouped, posledni_prijem, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
 
@@ -479,9 +437,20 @@ def load_stock_data(filepath):
     grouped['Poslední příjem'] = grouped['Datum_Prijmu_Obj'].dt.strftime('%d.%m.%Y').fillna('-')
     grouped['Kategorie_Nazev'] = grouped['Kód kategorie zboží'].apply(format_category_name)
     
-    grouped['Fyzicky_Sklad'] = grouped.apply(lambda row: get_fyzicky_sklad(row['Kód lokace'], row['Prodejce Kód']), axis=1)
-
     return grouped
+
+def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, poznamka):
+    zaznam = [
+        datetime.now().strftime('%d.%m.%Y %H:%M'),
+        kod_zbozi, popis, lokace, sarze,
+        system_stav, real_stav, real_stav - system_stav, poznamka
+    ]
+    file_exists = os.path.exists(NESROVNALOSTI_FILE)
+    with open(NESROVNALOSTI_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(['Čas hlášení', 'Kód zboží', 'Popis', 'Lokace', 'Číslo šarže', 'Stav systém', 'Stav fyzicky', 'Rozdíl', 'Poznámka'])
+        writer.writerow(zaznam)
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
     if vybrana_lokace == 'Boršice': vysledky_df = vysledky_df[vysledky_df['Fyzicky_Sklad'] == 'Boršice']
@@ -523,7 +492,6 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         </div>
         """, unsafe_allow_html=True)
 
-        # Ukládací formulář pro vlastní nastavení balení
         default_vel = ziskej_krok_baleni(kod_zbozi, nazev_zbozi)
         default_obal = customs.get(kod_zbozi, {}).get("obal", "automaticky")
 
@@ -548,8 +516,8 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         if not valid_exp.empty:
             fefo_top = valid_exp.iloc[0]
             
-            # Formátování lokace u FEFO
-            loc_disp = format_location_name(fefo_top['Kód lokace'], fefo_top['Prodejce Kód'])
+            # Oprava chyby (NameError) - bereme rovnou předpočítaný název
+            loc_disp = fefo_top['Lokace_Nazev']
             st.markdown(f"""
             <div class="fefo-banner">
                 <div class="fefo-icon">👉</div>
@@ -567,10 +535,9 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         
         for _, row in prehled.iterrows():
             bal_str = prepocet_na_baleni(kod_zbozi, row['Popis'], row['Zůstatek (množství)'])
-            loc_disp = format_location_name(row['Kód lokace'], row['Prodejce Kód'])
             st.markdown(f"""
             <div class="mobile-detail-card">
-                <strong>{loc_disp}</strong> &nbsp;—&nbsp; {row['Zůstatek (množství)']:g} j. <i>({bal_str})</i><br>
+                <strong>{row['Lokace_Nazev']}</strong> &nbsp;—&nbsp; {row['Zůstatek (množství)']:g} j. <i>({bal_str})</i><br>
                 <span style="color:#64748b;">Šarže:</span> {row['Číslo šarže']} | <span style="color:#64748b;">Exp:</span> {row['Expirace (stav)']}
             </div>
             """, unsafe_allow_html=True)
@@ -652,7 +619,7 @@ with tab_inventura:
         elif st.session_state.inv_lokace == 'Všechny komise':
             inv_df = inv_df[inv_df['Kód lokace'].str.startswith('K.', na=False)]
 
-        # SLOUČENÍ: Seskupujeme podle fyzické budovy (sčítáme vlastní sklad i komisi dohromady)
+        # SLOUČENÍ ŠARŽÍ: Seskupujeme podle fyzické budovy (sčítáme vlastní sklad i všechny komise dohromady)
         inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže', 'Fyzicky_Sklad'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
         inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
@@ -669,7 +636,7 @@ with tab_inventura:
                 pass
 
         celkem_polozek = len(inv_items)
-        spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}|{x['Fyzicky_Sklad']}" in hotove_zaznamy])
+        spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}|Sklad {x['Fyzicky_Sklad']}" in hotove_zaznamy])
         
         if celkem_polozek > 0:
             st.progress(spocitano / celkem_polozek)
@@ -690,10 +657,11 @@ with tab_inventura:
             skupina_hotovo = []
             
             for idx, row in inv_items.iterrows():
-                klic_zaznamu = f"{row['Číslo zboží']}|{row['Číslo šarže']}|{row['Fyzicky_Sklad']}"
+                lokace_slouceno = f"Sklad {row['Fyzicky_Sklad']}"
+                klic_zaznamu = f"{row['Číslo zboží']}|{row['Číslo šarže']}|{lokace_slouceno}"
                 je_hotovo = klic_zaznamu in hotove_zaznamy
                 rozdil = hotove_zaznamy.get(klic_zaznamu, 0.0)
-                data_karty = (idx, row, je_hotovo, rozdil, klic_zaznamu)
+                data_karty = (idx, row, je_hotovo, rozdil, klic_zaznamu, lokace_slouceno)
                 
                 if hledany_nazev and row['Popis'] == hledany_nazev:
                     skupina_vyhledano.append(data_karty)
@@ -702,12 +670,11 @@ with tab_inventura:
                 else:
                     skupina_zbyva.append(data_karty)
 
-            def vykresli_kartu(idx, row, je_hotovo, rozdil, klic_zaznamu, rozbaleno=False):
+            def vykresli_kartu(idx, row, je_hotovo, rozdil, klic_zaznamu, lokace_nazev, rozbaleno=False):
                 kod = row['Číslo zboží']
                 nazev = row['Popis']
                 sarze = row['Číslo šarže']
                 system_stav = row['Zůstatek (množství)']
-                lokace_nazev = f"Sklad {row['Fyzicky_Sklad']}" # Zobrazí se jako "Sklad Boršice" (spojený)
                 
                 ikona = "🟢" if (je_hotovo and rozdil == 0) else ("🔴" if je_hotovo else "🟠")
                 
@@ -798,7 +765,7 @@ with tab_inventura:
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("⚠️️ Hlášení")
+    st.subheader("⚠️ Hlášení")
     st.caption("Nesedí stav mimo inventuru? Zapiš to sem.")
 
     with st.form("form_nesrovnalost", clear_on_submit=True):
