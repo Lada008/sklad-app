@@ -1,9 +1,5 @@
 import streamlit as st
 import pandas as pd
-from google import genai
-from google.genai import types
-from PIL import Image
-import json
 import os
 import re
 from datetime import datetime
@@ -197,13 +193,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API_KEY = st.secrets.get("GEMINI_API_KEY")
-if not API_KEY:
-    st.error("🚨 Chybí API klíč pro Gemini! Zkontroluj nastavení secrets v aplikaci.")
-    st.stop()
-
 EXCEL_FILE = "sklad.xlsx"
 NESROVNALOSTI_FILE = "nesrovnalosti.csv"
+INV_FILE = "inventura_vysledky.csv"
 
 LOC_MAP = {
     '151BO': '🏢 Boršice',
@@ -245,7 +237,7 @@ def format_category_name(cat):
     if 'GRAMIN' in c:
         return '🌱 Graminicid'
     if 'MOŘID' in c:
-        return '🛡️ Mořidlo'
+        return '🛡️️ Mořidlo'
     if 'REGULÁTOR' in c or 'RR' in c:
         return '⚡ Regulátor'
     if 'ADITIV' in c or c.startswith('A '):
@@ -417,10 +409,8 @@ def load_stock_data(filepath):
     df_active = df[df['Zůstatek (množství)'] > 0].copy()
     df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
 
-    # --- OPRAVA PRO KOMISE (PŘIHRÁDKY) ---
     mask_k = df_active['Kód lokace'].str.startswith('K.', na=False)
     
-    # 1. Běžné sklady - zachováme původní jednoduchou logiku
     non_k = df_active[~mask_k]
     grouped_non_k = non_k.groupby(
         ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Prodejce Kód', 'Číslo šarže', 'Datum expirace'],
@@ -428,8 +418,6 @@ def load_stock_data(filepath):
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
 
-    # 2. Komisní sklady - u nich se Zůstatek kvůli FIFO špatně páruje na prodejce. 
-    # Sečteme fyzicky dostupné zboží na celé lokaci dohromady.
     k_locs = df_active[mask_k]
     k_grouped = k_locs.groupby(
         ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Číslo šarže', 'Datum expirace'],
@@ -437,7 +425,6 @@ def load_stock_data(filepath):
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
     
-    # 3. Zjistíme reálný fyzický pohyb Valmezu (Trčálka) od začátku aktuálního roku
     rok_start = pd.to_datetime(f"{datetime.now().year}-01-01")
     df_rok = df[pd.to_datetime(df['Zúčtovací datum'], errors='coerce') >= rok_start].copy()
     df_rok['Číslo šarže'] = df_rok['Číslo šarže'].fillna('-')
@@ -446,14 +433,12 @@ def load_stock_data(filepath):
     trc_batch_sums = df_rok[trc_mask].groupby(['Číslo zboží', 'Kód lokace', 'Číslo šarže'])['Množství'].sum().reset_index()
     trc_batch_sums.rename(columns={'Množství': 'Trc_Mnozstvi'}, inplace=True)
     
-    # 4. Odečteme reálný stav Trčálka z celkového zůstatku a zbytek hodíme do Boršic (Man)
     merged_k = pd.merge(k_grouped, trc_batch_sums, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
     merged_k['Trc_Mnozstvi'] = merged_k['Trc_Mnozstvi'].fillna(0)
     
     final_rows = []
     for _, row in merged_k.iterrows():
         total = row['Zůstatek (množství)']
-        # Zastropujeme hodnotu Trčálka, aby nebyla záporná nebo větší, než kolik celkově fyzicky je
         trc_share = max(0, min(row['Trc_Mnozstvi'], total)) 
         ostatni_share = total - trc_share
         
@@ -468,13 +453,13 @@ def load_stock_data(filepath):
         
         if trc_share > 0:
             d = base_dict.copy()
-            d['Prodejce Kód'] = 'TRČÁLEK'  # Bude se jmenovat Valmez
+            d['Prodejce Kód'] = 'TRČÁLEK'
             d['Zůstatek (množství)'] = trc_share
             final_rows.append(d)
             
         if ostatni_share > 0:
             d = base_dict.copy()
-            d['Prodejce Kód'] = 'MAN'      # Bude se jmenovat Boršice
+            d['Prodejce Kód'] = 'MAN'
             d['Zůstatek (množství)'] = ostatni_share
             final_rows.append(d)
             
@@ -608,8 +593,8 @@ vybrana_lokace = st.radio(
     horizontal=True
 )
 
-tab_rucni, tab_foto, tab_nesrovnalosti, tab_admin = st.tabs([
-    "🔍 Hledat", "📷 Foto", "⚠️ Hlášení", "🔄 Data"
+tab_rucni, tab_inventura, tab_nesrovnalosti, tab_admin = st.tabs([
+    "🔍 Hledat", "📋 Inventura", "⚠️ Hlášení", "🔄 Data"
 ])
 
 # 1. HLEDÁNÍ
@@ -642,81 +627,99 @@ with tab_rucni:
         else:
             st.info("👆 Vyber přípravek z našeptávače nebo napiš šarži.")
 
-# 2. FOCENÍ
-with tab_foto:
-    if "kamera_zapnuta" not in st.session_state:
-        st.session_state.kamera_zapnuta = False
+# 2. MOBILNÍ INVENTURA
+with tab_inventura:
+    st.subheader("📋 Mobilní inventura")
+    st.caption("Rozbal položku, zadej fyzický stav a potvrď.")
 
-    if not st.session_state.kamera_zapnuta:
-        st.write("")
-        st.write("Chceš vyfotit etiketu nebo krabici?")
-        if st.button("📸 Spustit fotoaparát", use_container_width=True, type="primary"):
-            st.session_state.kamera_zapnuta = True
-            st.rerun()
-    else:
-        if st.button("✕ Zavřít fotoaparát", use_container_width=True):
-            st.session_state.kamera_zapnuta = False
-            st.rerun()
+    if "inv_lokace" not in st.session_state:
+        st.session_state.inv_lokace = "Boršice"
 
-        st.write("**Namiř foťák na obal a klepni na spoušť:**")
-        st.caption("💡 TIP: Pokud se ti zapne přední selfie, otoč ji na zadní kameru ikonkou 📷↔ vpravo nahoře.")
-        foto_obal = st.camera_input("Vyfotit obal", label_visibility="collapsed")
+    st.session_state.inv_lokace = st.selectbox(
+        "Který úsek počítáš?", 
+        ["Boršice", "Valmez", "Všechny komise"],
+        index=["Boršice", "Valmez", "Všechny komise"].index(st.session_state.inv_lokace)
+    )
 
-        if foto_obal and not stock_df.empty:
-            image = Image.open(foto_obal)
-            with st.spinner("AI čte etiketu a hledá zásoby..."):
-                prompt = """
-                Prohlédni si tento obrázek chemického nebo zemědělského přípravku / etikety / krabice.
-                Najdi:
-                1. Obchodní název přípravku (např. RETAFOS, BELKAR, IRAZU, YARAMILA, BIZON, FOLPAN, CARYX, NINJA).
-                2. Kód zboží, pokud je vidět (např. CHE01414).
+    if not stock_df.empty:
+        inv_df = stock_df.copy()
+        if st.session_state.inv_lokace == 'Boršice':
+            inv_df = inv_df[(inv_df['Kód lokace'] == '151BO') | ((inv_df['Kód lokace'].str.startswith('K.')) & (~inv_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])))]
+        elif st.session_state.inv_lokace == 'Valmez':
+            inv_df = inv_df[(inv_df['Kód lokace'] == '151VM') | ((inv_df['Kód lokace'].str.startswith('K.')) & (inv_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])))]
+        elif st.session_state.inv_lokace == 'Všechny komise':
+            inv_df = inv_df[inv_df['Kód lokace'].str.startswith('K.', na=False)]
 
-                Vrať výhradně čistý JSON:
-                {"nazev": "SEM_NAZEV", "kod": null}
-                """
+        inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže', 'Lokace_Nazev'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
+        inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
-                modely_k_vyzkouseni = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
-                response = None
-                posledni_chyba = None
+        hotove_zaznamy = set()
+        if os.path.exists(INV_FILE):
+            try:
+                log_df = pd.read_csv(INV_FILE, encoding='utf-8-sig')
+                hotove_zaznamy = set(log_df['Kód zboží'].astype(str) + "|" + log_df['Šarže'].astype(str))
+            except:
+                pass
 
-                client = genai.Client(api_key=API_KEY)
+        celkem_polozek = len(inv_items)
+        spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}" in hotove_zaznamy])
+        
+        if celkem_polozek > 0:
+            st.progress(spocitano / celkem_polozek)
+            st.markdown(f"**Průběh:** Spočítáno **{spocitano}** z **{celkem_polozek}** položek.")
+        else:
+            st.info("Na této lokaci není podle systému žádné zboží.")
 
-                for model_name in modely_k_vyzkouseni:
-                    for pokus in range(2):
-                        try:
-                            response = client.models.generate_content(
-                                model=model_name,
-                                contents=[image, prompt],
-                                config=types.GenerateContentConfig(
-                                    response_mime_type="application/json",
-                                    temperature=0.1
-                                )
-                            )
-                            if response and response.text:
-                                break
-                        except Exception as e:
-                            posledni_chyba = e
-                            time.sleep(1.2)
-                    if response and response.text:
-                        break
+        for idx, row in inv_items.iterrows():
+            kod = row['Číslo zboží']
+            nazev = row['Popis']
+            sarze = row['Číslo šarže']
+            system_stav = row['Zůstatek (množství)']
+            klic = f"{kod}|{sarze}"
+            
+            je_hotovo = klic in hotove_zaznamy
+            ikona = "🟢" if je_hotovo else "🟠"
+            
+            with st.expander(f"{ikona} {nazev} (Šarže: {sarze})"):
+                st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
+                
+                with st.form(key=f"form_{klic}"):
+                    fyzicky_stav = st.number_input(
+                        "Fyzicky napočítáno:", 
+                        min_value=0.0, 
+                        value=float(system_stav),
+                        step=1.0,
+                        key=f"num_{klic}"
+                    )
+                    
+                    if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
+                        zaznam = [
+                            datetime.now().strftime('%d.%m.%Y %H:%M'),
+                            st.session_state.inv_lokace, kod, nazev, sarze,
+                            system_stav, fyzicky_stav, fyzicky_stav - system_stav
+                        ]
+                        
+                        file_exists = os.path.exists(INV_FILE)
+                        with open(INV_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
+                            writer = csv.writer(f)
+                            if not file_exists:
+                                writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
+                            writer.writerow(zaznam)
+                        
+                        st.success("Uloženo!")
+                        time.sleep(0.5)
+                        st.rerun()
 
-                if not response or not response.text:
-                    st.error(f"Chyba při komunikaci s AI: {posledni_chyba}")
-                else:
-                    try:
-                        data = json.loads(response.text)
-                        hledany_nazev = data.get("nazev", "").strip()
-                        hledany_kod = data.get("kod")
-
-                        st.markdown(f"🔍 **Rozpoznáno z fotky:** `{hledany_nazev}`")
-
-                        mask = stock_df['Popis'].str.contains(hledany_nazev, case=False, na=False)
-                        if hledany_kod:
-                            mask = mask | (stock_df['Číslo zboží'].astype(str) == str(hledany_kod))
-
-                        zobraz_vysledky(stock_df[mask], hledany_nazev, vybrana_lokace)
-                    except Exception as parse_err:
-                        st.error(f"Nepodařilo se zpracovat odpověď AI: {response.text}")
+        if os.path.exists(INV_FILE):
+            st.write("---")
+            with open(INV_FILE, "r", encoding="utf-8-sig") as f_down:
+                st.download_button(
+                    label="📥 Stáhnout výsledky inventury (CSV)",
+                    data=f_down.read(),
+                    file_name=f"inventura_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
