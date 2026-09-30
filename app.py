@@ -656,7 +656,7 @@ with tab_rucni:
 # 2. MOBILNÍ INVENTURA
 with tab_inventura:
     st.subheader("📋 Mobilní inventura")
-    st.caption("Rozbal položku, zadej fyzický stav a potvrď.")
+    st.caption("Najdi položku přes našeptávač, nebo jen roluj seznamem.")
 
     if "inv_lokace" not in st.session_state:
         st.session_state.inv_lokace = "Boršice"
@@ -679,13 +679,12 @@ with tab_inventura:
         inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže', 'Lokace_Nazev'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
         inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
-        # Načtení už uložených výsledků jako slovník (abychom věděli, jaký je rozdíl)
+        # Načtení uložených záznamů
         hotove_zaznamy = {}
         log_df = pd.DataFrame()
         if os.path.exists(INV_FILE):
             try:
                 log_df = pd.read_csv(INV_FILE, encoding='utf-8-sig')
-                # Necháme si jen nejnovější záznam k dané šarži (když to přepíšeš, opraví se to)
                 log_df = log_df.drop_duplicates(subset=['Kód zboží', 'Šarže', 'Úsek'], keep='last')
                 for _, r in log_df.iterrows():
                     klic = f"{r['Kód zboží']}|{r['Šarže']}|{r['Úsek']}"
@@ -699,72 +698,110 @@ with tab_inventura:
         if celkem_polozek > 0:
             st.progress(spocitano / celkem_polozek)
             st.markdown(f"**Průběh:** Spočítáno **{spocitano}** z **{celkem_polozek}** položek.")
+            
+            # --- NAŠEPTÁVAČ PRO INVENTURU ---
+            dostupne_nazvy = sorted(inv_items['Popis'].unique().tolist())
+            hledany_nazev = st.selectbox(
+                "🔍 Rychlé vyhledání (našeptávač):",
+                options=dostupne_nazvy,
+                index=None,
+                placeholder="Vyber produkt pro rychlé zadání..."
+            )
+            
+            st.write("---")
+            
+            # Rozřazení do 3 skupin pro lepší UX
+            skupina_vyhledano = []
+            skupina_zbyva = []
+            skupina_hotovo = []
+            
+            for idx, row in inv_items.iterrows():
+                klic_zaznamu = f"{row['Číslo zboží']}|{row['Číslo šarže']}|{row['Lokace_Nazev']}"
+                je_hotovo = klic_zaznamu in hotove_zaznamy
+                rozdil = hotove_zaznamy.get(klic_zaznamu, 0.0)
+                
+                data_karty = (idx, row, je_hotovo, rozdil, klic_zaznamu)
+                
+                # Kam položka patří?
+                if hledany_nazev and row['Popis'] == hledany_nazev:
+                    skupina_vyhledano.append(data_karty)
+                elif je_hotovo:
+                    skupina_hotovo.append(data_karty)
+                else:
+                    skupina_zbyva.append(data_karty)
+
+            # Pomocná funkce pro vykreslení samotné karty (abychom nepsali kód 3x)
+            def vykresli_kartu(idx, row, je_hotovo, rozdil, klic_zaznamu, rozbaleno=False):
+                kod = row['Číslo zboží']
+                nazev = row['Popis']
+                sarze = row['Číslo šarže']
+                system_stav = row['Zůstatek (množství)']
+                lokace_nazev = row['Lokace_Nazev']
+                
+                ikona = "🟢" if (je_hotovo and rozdil == 0) else ("🔴" if je_hotovo else "🟠")
+                
+                with st.expander(f"{ikona} {nazev} (Šarže: {sarze} | {lokace_nazev})", expanded=rozbaleno):
+                    st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
+                    
+                    if je_hotovo:
+                        barva_textu = "green" if rozdil == 0 else "red"
+                        st.markdown(f"Zadáno: **{system_stav + rozdil:g} j.** (<span style='color:{barva_textu}; font-weight:bold'>Rozdíl: {rozdil:g} j.</span>)", unsafe_allow_html=True)
+                    
+                    krok = ziskej_krok_baleni(nazev)
+                    
+                    with st.form(key=f"inv_form_{idx}"):
+                        fyzicky_stav = st.number_input(
+                            "Fyzicky napočítáno:", 
+                            min_value=0.0, 
+                            value=float(system_stav) if not je_hotovo else float(system_stav + rozdil),
+                            step=float(krok),
+                            key=f"inv_num_{idx}"
+                        )
+                        
+                        if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
+                            akt_rozdil = fyzicky_stav - system_stav
+                            zaznam = [
+                                datetime.now().strftime('%d.%m.%Y %H:%M'),
+                                lokace_nazev, kod, nazev, sarze,
+                                system_stav, fyzicky_stav, akt_rozdil
+                            ]
+                            
+                            file_exists = os.path.exists(INV_FILE)
+                            with open(INV_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
+                                writer = csv.writer(f)
+                                if not file_exists:
+                                    writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
+                                writer.writerow(zaznam)
+                            
+                            if akt_rozdil == 0:
+                                st.success("Všechno sedí! 👍")
+                            else:
+                                st.error(f"⚠ Uloženo s rozdílem {akt_rozdil:g} j.")
+                                
+                            time.sleep(1.2)
+                            st.rerun()
+
+            # Zobrazení skupin
+            if skupina_vyhledano:
+                st.write("#### 🔍 Právě vyhledáno")
+                for karta in skupina_vyhledano:
+                    vykresli_kartu(*karta, rozbaleno=True)  # <-- Vyhledané se samo ihned otevře
+                st.write("---")
+
+            if skupina_zbyva:
+                st.write("#### 🟠 Zbývá spočítat")
+                for karta in skupina_zbyva:
+                    vykresli_kartu(*karta, rozbaleno=False)
+
+            if skupina_hotovo:
+                st.write("#### 🟢 Již hotové")
+                for karta in skupina_hotovo:
+                    vykresli_kartu(*karta, rozbaleno=False)
+                    
         else:
             st.info("Na této lokaci není podle systému žádné zboží.")
 
-        for idx, row in inv_items.iterrows():
-            kod = row['Číslo zboží']
-            nazev = row['Popis']
-            sarze = row['Číslo šarže']
-            system_stav = row['Zůstatek (množství)']
-            lokace_nazev = row['Lokace_Nazev']
-            
-            klic_zaznamu = f"{kod}|{sarze}|{lokace_nazev}"
-            je_hotovo = klic_zaznamu in hotove_zaznamy
-            
-            # Barevná indikace (sedí = zelená, nesedí = červená)
-            if je_hotovo:
-                rozdil = hotove_zaznamy[klic_zaznamu]
-                ikona = "🟢" if rozdil == 0 else "🔴"
-            else:
-                ikona = "🟠"
-                rozdil = 0.0
-            
-            with st.expander(f"{ikona} {nazev} (Šarže: {sarze} | {lokace_nazev})"):
-                st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
-                
-                # Pokud už je hotovo, zobrazíme předchozí rozdíl
-                if je_hotovo:
-                    barva_textu = "green" if rozdil == 0 else "red"
-                    st.markdown(f"Zadáno: **{system_stav + rozdil:g} j.** (<span style='color:{barva_textu}; font-weight:bold'>Rozdíl: {rozdil:g} j.</span>)", unsafe_allow_html=True)
-                
-                krok = ziskej_krok_baleni(nazev)
-                
-                with st.form(key=f"inv_form_{idx}"):
-                    # Pokud už jsi to počítal, nabídne to to, co jsi tam minule zadal (system + rozdil)
-                    fyzicky_stav = st.number_input(
-                        "Fyzicky napočítáno:", 
-                        min_value=0.0, 
-                        value=float(system_stav) if not je_hotovo else float(system_stav + rozdil),
-                        step=float(krok),
-                        key=f"inv_num_{idx}"
-                    )
-                    
-                    if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
-                        akt_rozdil = fyzicky_stav - system_stav
-                        zaznam = [
-                            datetime.now().strftime('%d.%m.%Y %H:%M'),
-                            lokace_nazev, kod, nazev, sarze,
-                            system_stav, fyzicky_stav, akt_rozdil
-                        ]
-                        
-                        file_exists = os.path.exists(INV_FILE)
-                        with open(INV_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
-                            writer = csv.writer(f)
-                            if not file_exists:
-                                writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
-                            writer.writerow(zaznam)
-                        
-                        # Okamžitá vizuální odezva před přesunem dál
-                        if akt_rozdil == 0:
-                            st.success("Všechno sedí! 👍")
-                        else:
-                            st.error(f"⚠️️ Uloženo s rozdílem {akt_rozdil:g} j.")
-                            
-                        time.sleep(1.2) # Delší pauza, abys stihl zaregistrovat chybu
-                        st.rerun()
-
-        # Nová sekce s tabulkou rozdílů pro rychlou vizuální kontrolu na place
+        # Tabulka chyb a tlačítko stažení pod inventurou
         if not log_df.empty:
             chyby_df = log_df[log_df['Rozdíl'] != 0].copy()
             if not chyby_df.empty:
