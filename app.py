@@ -237,7 +237,7 @@ def format_category_name(cat):
     if 'GRAMIN' in c:
         return '🌱 Graminicid'
     if 'MOŘID' in c:
-        return '🛡️️ Mořidlo'
+        return '🛡 Mořidlo'
     if 'REGULÁTOR' in c or 'RR' in c:
         return '⚡ Regulátor'
     if 'ADITIV' in c or c.startswith('A '):
@@ -265,6 +265,31 @@ def sklonuj(pocet, jednotka):
     if jednotka == 'baleni':
         return f"{pocet} balení"
     return f"{pocet} {jednotka}"
+
+# Nová funkce: Odhadne správný krok (+/-) podle velikosti balení
+def ziskej_krok_baleni(popis):
+    if not isinstance(popis, str):
+        return 1.0
+    
+    # Detekce multipacků (např. 4x5 L) - krokujeme po kanystru (velikost_ks)
+    m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
+    if m_mult:
+        v = float(m_mult.group(2).replace(',', '.'))
+        u = m_mult.group(3).lower()
+        if u in ['g', 'ml']: 
+            v /= 1000.0
+        return max(0.001, float(v))
+        
+    # Detekce běžného balení (např. 5 L, 500 g)
+    m = re.search(r'(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
+    if m:
+        v = float(m.group(1).replace(',', '.'))
+        u = m.group(2).lower()
+        if u in ['g', 'ml']: 
+            v /= 1000.0
+        return max(0.001, float(v))
+        
+    return 1.0
 
 def prepocet_na_baleni(popis, qty):
     if not isinstance(popis, str) or qty is None or pd.isna(qty) or qty == 0:
@@ -593,6 +618,7 @@ vybrana_lokace = st.radio(
     horizontal=True
 )
 
+# Zjednodušené taby (bez foťáku)
 tab_rucni, tab_inventura, tab_nesrovnalosti, tab_admin = st.tabs([
     "🔍 Hledat", "📋 Inventura", "⚠️ Hlášení", "🔄 Data"
 ])
@@ -657,12 +683,13 @@ with tab_inventura:
         if os.path.exists(INV_FILE):
             try:
                 log_df = pd.read_csv(INV_FILE, encoding='utf-8-sig')
-                hotove_zaznamy = set(log_df['Kód zboží'].astype(str) + "|" + log_df['Šarže'].astype(str))
+                # Mimo kódu a šarže porovnáváme i přesný název úseku z tabulky
+                hotove_zaznamy = set(log_df['Kód zboží'].astype(str) + "|" + log_df['Šarže'].astype(str) + "|" + log_df['Úsek'].astype(str))
             except:
                 pass
 
         celkem_polozek = len(inv_items)
-        spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}" in hotove_zaznamy])
+        spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}|{x['Lokace_Nazev']}" in hotove_zaznamy])
         
         if celkem_polozek > 0:
             st.progress(spocitano / celkem_polozek)
@@ -675,27 +702,32 @@ with tab_inventura:
             nazev = row['Popis']
             sarze = row['Číslo šarže']
             system_stav = row['Zůstatek (množství)']
-            klic = f"{kod}|{sarze}"
+            lokace_nazev = row['Lokace_Nazev']
             
-            je_hotovo = klic in hotove_zaznamy
+            klic_zaznamu = f"{kod}|{sarze}|{lokace_nazev}"
+            je_hotovo = klic_zaznamu in hotove_zaznamy
             ikona = "🟢" if je_hotovo else "🟠"
             
-            with st.expander(f"{ikona} {nazev} (Šarže: {sarze})"):
+            with st.expander(f"{ikona} {nazev} (Šarže: {sarze} | {lokace_nazev})"):
                 st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
                 
-                with st.form(key=f"form_{klic}"):
+                # Zjištění kroku (např. 5 L -> krok 5.0)
+                krok = ziskej_krok_baleni(nazev)
+                
+                # Unikátní klíč pro formulář chrání proti chybě DuplicateElementKey
+                with st.form(key=f"inv_form_{idx}"):
                     fyzicky_stav = st.number_input(
                         "Fyzicky napočítáno:", 
                         min_value=0.0, 
                         value=float(system_stav),
-                        step=1.0,
-                        key=f"num_{klic}"
+                        step=float(krok),
+                        key=f"inv_num_{idx}"
                     )
                     
                     if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
                         zaznam = [
                             datetime.now().strftime('%d.%m.%Y %H:%M'),
-                            st.session_state.inv_lokace, kod, nazev, sarze,
+                            lokace_nazev, kod, nazev, sarze,
                             system_stav, fyzicky_stav, fyzicky_stav - system_stav
                         ]
                         
