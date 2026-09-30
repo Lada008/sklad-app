@@ -679,12 +679,17 @@ with tab_inventura:
         inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže', 'Lokace_Nazev'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
         inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
-        hotove_zaznamy = set()
+        # Načtení už uložených výsledků jako slovník (abychom věděli, jaký je rozdíl)
+        hotove_zaznamy = {}
+        log_df = pd.DataFrame()
         if os.path.exists(INV_FILE):
             try:
                 log_df = pd.read_csv(INV_FILE, encoding='utf-8-sig')
-                # Mimo kódu a šarže porovnáváme i přesný název úseku z tabulky
-                hotove_zaznamy = set(log_df['Kód zboží'].astype(str) + "|" + log_df['Šarže'].astype(str) + "|" + log_df['Úsek'].astype(str))
+                # Necháme si jen nejnovější záznam k dané šarži (když to přepíšeš, opraví se to)
+                log_df = log_df.drop_duplicates(subset=['Kód zboží', 'Šarže', 'Úsek'], keep='last')
+                for _, r in log_df.iterrows():
+                    klic = f"{r['Kód zboží']}|{r['Šarže']}|{r['Úsek']}"
+                    hotove_zaznamy[klic] = r['Rozdíl']
             except:
                 pass
 
@@ -706,29 +711,41 @@ with tab_inventura:
             
             klic_zaznamu = f"{kod}|{sarze}|{lokace_nazev}"
             je_hotovo = klic_zaznamu in hotove_zaznamy
-            ikona = "🟢" if je_hotovo else "🟠"
+            
+            # Barevná indikace (sedí = zelená, nesedí = červená)
+            if je_hotovo:
+                rozdil = hotove_zaznamy[klic_zaznamu]
+                ikona = "🟢" if rozdil == 0 else "🔴"
+            else:
+                ikona = "🟠"
+                rozdil = 0.0
             
             with st.expander(f"{ikona} {nazev} (Šarže: {sarze} | {lokace_nazev})"):
                 st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
                 
-                # Zjištění kroku (např. 5 L -> krok 5.0)
+                # Pokud už je hotovo, zobrazíme předchozí rozdíl
+                if je_hotovo:
+                    barva_textu = "green" if rozdil == 0 else "red"
+                    st.markdown(f"Zadáno: **{system_stav + rozdil:g} j.** (<span style='color:{barva_textu}; font-weight:bold'>Rozdíl: {rozdil:g} j.</span>)", unsafe_allow_html=True)
+                
                 krok = ziskej_krok_baleni(nazev)
                 
-                # Unikátní klíč pro formulář chrání proti chybě DuplicateElementKey
                 with st.form(key=f"inv_form_{idx}"):
+                    # Pokud už jsi to počítal, nabídne to to, co jsi tam minule zadal (system + rozdil)
                     fyzicky_stav = st.number_input(
                         "Fyzicky napočítáno:", 
                         min_value=0.0, 
-                        value=float(system_stav),
+                        value=float(system_stav) if not je_hotovo else float(system_stav + rozdil),
                         step=float(krok),
                         key=f"inv_num_{idx}"
                     )
                     
                     if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
+                        akt_rozdil = fyzicky_stav - system_stav
                         zaznam = [
                             datetime.now().strftime('%d.%m.%Y %H:%M'),
                             lokace_nazev, kod, nazev, sarze,
-                            system_stav, fyzicky_stav, fyzicky_stav - system_stav
+                            system_stav, fyzicky_stav, akt_rozdil
                         ]
                         
                         file_exists = os.path.exists(INV_FILE)
@@ -738,9 +755,26 @@ with tab_inventura:
                                 writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
                             writer.writerow(zaznam)
                         
-                        st.success("Uloženo!")
-                        time.sleep(0.5)
+                        # Okamžitá vizuální odezva před přesunem dál
+                        if akt_rozdil == 0:
+                            st.success("Všechno sedí! 👍")
+                        else:
+                            st.error(f"⚠️️ Uloženo s rozdílem {akt_rozdil:g} j.")
+                            
+                        time.sleep(1.2) # Delší pauza, abys stihl zaregistrovat chybu
                         st.rerun()
+
+        # Nová sekce s tabulkou rozdílů pro rychlou vizuální kontrolu na place
+        if not log_df.empty:
+            chyby_df = log_df[log_df['Rozdíl'] != 0].copy()
+            if not chyby_df.empty:
+                st.write("---")
+                st.subheader("⚠️ Zjištěné rozdíly")
+                st.dataframe(
+                    chyby_df[['Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl']], 
+                    use_container_width=True, 
+                    hide_index=True
+                )
 
         if os.path.exists(INV_FILE):
             st.write("---")
@@ -752,7 +786,6 @@ with tab_inventura:
                     mime="text/csv",
                     use_container_width=True
                 )
-
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
     st.subheader("Hlášení")
