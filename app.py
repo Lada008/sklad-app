@@ -219,11 +219,24 @@ def save_custom_pack(kod, velikost, obal):
     with open(CUSTOM_PACK_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f)
 
-def format_location_name(loc):
+def get_fyzicky_sklad(loc, prodejce):
+    loc_str = str(loc)
+    prod_str = str(prodejce).strip().upper()
+    if loc_str == '151BO': return 'Boršice'
+    if loc_str == '151VM': return 'Valmez'
+    if loc_str.startswith('K.'):
+        if prod_str in ['TRČÁLEK', 'TRCALEK']: return 'Valmez'
+        return 'Boršice'
+    return loc_str
+
+def format_location_name(loc, prodejce):
     if not isinstance(loc, str): return '-'
     if loc in LOC_MAP: return LOC_MAP[loc]
     if loc.startswith('K.'):
-        return f"🤝 Komise {loc[2:].upper()}"
+        nazev_komise = loc[2:].upper()
+        prodejce_str = str(prodejce).strip().upper()
+        if prodejce_str in ['TRČÁLEK', 'TRCALEK']: return f"🤝 Komise {nazev_komise} (Valmez)"
+        else: return f"🤝 Komise {nazev_komise} (Boršice)"
     return loc
 
 def format_category_name(cat):
@@ -400,12 +413,12 @@ def load_stock_data(filepath):
 
     df_active = df[df['Zůstatek (množství)'] > 0].copy()
     df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
-    
-    # Jednoduché zobrazení názvů - už se to nesnaží dopočítat Valmez/Boršice podle FIFO chyb
-    df_active['Lokace_Nazev'] = df_active['Kód lokace'].apply(format_location_name)
+
+    df_active['Fyzicky_Sklad'] = df_active.apply(lambda row: get_fyzicky_sklad(row['Kód lokace'], row['Prodejce Kód']), axis=1)
+    df_active['Lokace_Nazev'] = df_active.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
 
     grouped = df_active.groupby(
-        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Lokace_Nazev', 'Číslo šarže', 'Datum expirace'],
+        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Fyzicky_Sklad', 'Lokace_Nazev', 'Číslo šarže', 'Datum expirace'],
         dropna=False,
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
@@ -435,7 +448,6 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
         writer.writerow(zaznam)
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
-    # U vyhledávání zachováme dělení na Boršice/Valmez, ale jen tak, že Boršice ukážou VŠECHNY komise
     if vybrana_lokace == 'Boršice': 
         vysledky_df = vysledky_df[(vysledky_df['Kód lokace'] == '151BO') | (vysledky_df['Kód lokace'].str.startswith('K.', na=False))]
     elif vybrana_lokace == 'Valmez': 
@@ -584,13 +596,16 @@ with tab_rucni:
 with tab_inventura:
     st.subheader("📋 Mobilní inventura")
 
-    if "inv_lokace" not in st.session_state:
-        st.session_state.inv_lokace = "Boršice (Sklad + Všechny komise)"
+    # OPRAVA CHYBY S PAMĚTÍ (ValueError)
+    inv_moznosti = ["Boršice (Sklad + Všechny komise)", "Valmez (Sklad + Všechny komise)", "Jen komise"]
+    
+    if "inv_lokace" not in st.session_state or st.session_state.inv_lokace not in inv_moznosti:
+        st.session_state.inv_lokace = inv_moznosti[0]
 
     st.session_state.inv_lokace = st.selectbox(
         "Který úsek počítáš?", 
-        ["Boršice (Sklad + Všechny komise)", "Valmez (Sklad + Všechny komise)", "Jen komise"],
-        index=["Boršice (Sklad + Všechny komise)", "Valmez (Sklad + Všechny komise)", "Jen komise"].index(st.session_state.inv_lokace)
+        inv_moznosti,
+        index=inv_moznosti.index(st.session_state.inv_lokace)
     )
 
     if not stock_df.empty:
@@ -605,8 +620,6 @@ with tab_inventura:
             inv_df = inv_df[inv_df['Kód lokace'].str.startswith('K.', na=False)]
             lokace_zaznamu = "Všechny komise"
 
-        # TÍMTO SE TO SLOUČÍ! Vyhodil jsem Lokaci ze seskupování. 
-        # Zůstává jen Kód, Popis a Šarže. Vlastní sklad a komise se sečtou do 1 řádku.
         inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
         inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
@@ -751,7 +764,7 @@ with tab_inventura:
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("⚠️ Hlášení")
+    st.subheader("⚠️️ Hlášení")
     st.caption("Nesedí stav mimo inventuru? Zapiš to sem.")
 
     with st.form("form_nesrovnalost", clear_on_submit=True):
