@@ -46,23 +46,6 @@ st.markdown("""
         opacity: 0.9;
     }
 
-    div[data-testid="stRadio"] > label {
-        color: #0f172a !important;
-        font-weight: 700 !important;
-        font-size: 0.92rem !important;
-    }
-    div[data-testid="stRadio"] > div {
-        background: #ffffff !important;
-        padding: 8px 12px !important;
-        border-radius: 12px !important;
-        border: 1px solid #cbd5e1 !important;
-        gap: 12px !important;
-    }
-    div[data-testid="stRadio"] label p {
-        color: #1e293b !important;
-        font-weight: 600 !important;
-    }
-
     .stTabs [data-baseweb="tab-list"] {
         gap: 4px;
         background-color: transparent;
@@ -71,13 +54,13 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         background-color: transparent !important;
         border: none !important;
-        padding: 10px 14px !important;
+        padding: 10px 10px !important;
         border-radius: 8px 8px 0 0 !important;
     }
     .stTabs [data-baseweb="tab"] p {
         color: #64748b !important;
         font-weight: 600 !important;
-        font-size: 0.95rem !important;
+        font-size: 0.90rem !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
@@ -91,13 +74,13 @@ st.markdown("""
     .product-card {
         background: #ffffff !important;
         border-radius: 14px;
-        padding: 18px;
-        margin-bottom: 18px;
+        padding: 16px;
+        margin-bottom: 16px;
         box-shadow: 0 3px 10px rgba(0,0,0,0.05);
         border: 1px solid #e2e8f0;
     }
     .product-title {
-        font-size: 1.3rem;
+        font-size: 1.2rem;
         font-weight: 800;
         color: #0f172a !important;
         margin-bottom: 6px;
@@ -105,7 +88,7 @@ st.markdown("""
         align-items: center;
         justify-content: space-between;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 6px;
     }
     .product-code {
         font-size: 0.85rem;
@@ -117,8 +100,8 @@ st.markdown("""
         font-weight: 600;
     }
     .category-badge {
-        font-size: 0.82rem;
-        padding: 4px 10px;
+        font-size: 0.75rem;
+        padding: 4px 8px;
         border-radius: 20px;
         font-weight: 700;
         background: #dcfce7 !important;
@@ -128,8 +111,8 @@ st.markdown("""
 
     .stock-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-        gap: 10px;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
         margin: 12px 0;
     }
     .stock-box {
@@ -140,41 +123,41 @@ st.markdown("""
         text-align: center;
     }
     .stock-box-label {
-        font-size: 0.72rem !important;
+        font-size: 0.65rem !important;
         text-transform: uppercase;
         color: #64748b !important;
         font-weight: 700 !important;
         margin-bottom: 2px;
     }
     .stock-box-value {
-        font-size: 1.2rem !important;
+        font-size: 1.1rem !important;
         font-weight: 800 !important;
         color: #0f172a !important;
     }
 
     .fefo-banner {
         background: #fffbeb !important;
-        border: 1.5px solid #f59e0b !important;
+        border: 1px solid #f59e0b !important;
         border-radius: 10px;
-        padding: 12px 14px;
+        padding: 10px 12px;
         margin: 12px 0;
         display: flex;
         align-items: flex-start;
         gap: 10px;
     }
     .fefo-icon {
-        font-size: 1.4rem;
+        font-size: 1.2rem;
         line-height: 1;
     }
     .fefo-text {
-        font-size: 0.92rem !important;
+        font-size: 0.85rem !important;
         color: #78350f !important;
         line-height: 1.4;
     }
     .fefo-badge {
         background: #f59e0b !important;
         color: #ffffff !important;
-        padding: 2px 7px;
+        padding: 2px 6px;
         border-radius: 6px;
         font-weight: 800;
         font-family: monospace;
@@ -187,8 +170,22 @@ st.markdown("""
         padding: 8px 12px;
         margin: 8px 0;
         color: #1e3a8a !important;
-        font-size: 0.92rem !important;
+        font-size: 0.85rem !important;
         font-weight: 700 !important;
+    }
+
+    /* Mobilní karta pro detail lokace místo tabulky */
+    .mobile-detail-card {
+        background: #f1f5f9;
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+        border-left: 4px solid #cbd5e1;
+    }
+    .mobile-detail-card strong {
+        color: #0f172a;
+        font-size: 0.95rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -266,29 +263,22 @@ def sklonuj(pocet, jednotka):
         return f"{pocet} balení"
     return f"{pocet} {jednotka}"
 
-# Nová funkce: Odhadne správný krok (+/-) podle velikosti balení
 def ziskej_krok_baleni(popis):
     if not isinstance(popis, str):
         return 1.0
-    
-    # Detekce multipacků (např. 4x5 L) - krokujeme po kanystru (velikost_ks)
     m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m_mult:
         v = float(m_mult.group(2).replace(',', '.'))
         u = m_mult.group(3).lower()
-        if u in ['g', 'ml']: 
-            v /= 1000.0
+        if u in ['g', 'ml']: v /= 1000.0
         return max(0.001, float(v))
         
-    # Detekce běžného balení (např. 5 L, 500 g)
     m = re.search(r'(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m:
         v = float(m.group(1).replace(',', '.'))
         u = m.group(2).lower()
-        if u in ['g', 'ml']: 
-            v /= 1000.0
+        if u in ['g', 'ml']: v /= 1000.0
         return max(0.001, float(v))
-        
     return 1.0
 
 def prepocet_na_baleni(popis, qty):
@@ -301,10 +291,8 @@ def prepocet_na_baleni(popis, qty):
         velikost_ks = float(m_mult.group(2).replace(',', '.'))
         uom_raw = m_mult.group(3).lower()
 
-        if uom_raw in ['g', 'ml']:
-            velikost_ks_base = velikost_ks / 1000.0
-        else:
-            velikost_ks_base = velikost_ks
+        if uom_raw in ['g', 'ml']: velikost_ks_base = velikost_ks / 1000.0
+        else: velikost_ks_base = velikost_ks
 
         celkem_base_v_baleni = ks_v_baleni * velikost_ks_base
         if celkem_base_v_baleni > 0:
@@ -328,12 +316,9 @@ def prepocet_na_baleni(popis, qty):
             pocet = qty / unit_size_base
             if abs(pocet - round(pocet)) < 0.05:
                 n = int(round(pocet))
-                if uom_base == 'l':
-                    typ_obal = 'kanystr' if unit_size_base >= 3 else 'lahev'
-                elif uom_base == 'kg':
-                    typ_obal = 'pytel' if unit_size_base >= 15 else 'baleni'
-                else:
-                    typ_obal = 'baleni'
+                if uom_base == 'l': typ_obal = 'kanystr' if unit_size_base >= 3 else 'lahev'
+                elif uom_base == 'kg': typ_obal = 'pytel' if unit_size_base >= 15 else 'baleni'
+                else: typ_obal = 'baleni'
 
                 text_obalu = sklonuj(n, typ_obal)
                 krabice_info = ""
@@ -342,18 +327,14 @@ def prepocet_na_baleni(popis, qty):
                     k = n // 4
                     zb = n % 4
                     k_text = sklonuj(k, 'krabice')
-                    if zb > 0:
-                        krabice_info = f" ({k_text} + {sklonuj(zb, 'kanystr')})"
-                    else:
-                        krabice_info = f" ({k_text})"
+                    if zb > 0: krabice_info = f" ({k_text} + {sklonuj(zb, 'kanystr')})"
+                    else: krabice_info = f" ({k_text})"
                 elif uom_base == 'l' and (unit_size_base == 1 or unit_size == 1000) and n >= 12:
                     k = n // 12
                     zb = n % 12
                     k_text = sklonuj(k, 'krabice')
-                    if zb > 0:
-                        krabice_info = f" ({k_text} po 12 ks + {sklonuj(zb, 'lahev')})"
-                    else:
-                        krabice_info = f" ({k_text} po 12 ks)"
+                    if zb > 0: krabice_info = f" ({k_text} po 12 ks + {sklonuj(zb, 'lahev')})"
+                    else: krabice_info = f" ({k_text} po 12 ks)"
 
                 puvodni_jednotka = m.group(0).strip()
                 return f"{text_obalu} po {puvodni_jednotka}{krabice_info}"
@@ -551,7 +532,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
                 <span>{nazev_zbozi}</span>
                 <span class="category-badge">{kategorie}</span>
             </div>
-            <div style="margin-bottom: 12px;">
+            <div style="margin-bottom: 10px;">
                 <span class="product-code">KÓD: {kod_zbozi}</span>
             </div>
             <div class="stock-grid">
@@ -576,26 +557,27 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             <div class="fefo-banner">
                 <div class="fefo-icon">👉</div>
                 <div class="fefo-text">
-                    <strong>DOPORUČENÍ K VÝDEJI (FEFO):</strong><br>
-                    Přednostně vyskladni šarži <span class="fefo-badge">{fefo_top['Číslo šarže']}</span> 
-                    na lokaci <strong>{fefo_top['Lokace_Nazev']}</strong> 
-                    (nejdřívější expirace: <strong>{fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')}</strong>).
+                    <strong>FEFO VÝDEJ:</strong><br>
+                    Šarže <span class="fefo-badge">{fefo_top['Číslo šarže']}</span> 
+                    lokace <strong>{fefo_top['Lokace_Nazev']}</strong> 
+                    (Exp: <strong>{fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')}</strong>).
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-        prehled = skupina.copy()
-        prehled['Krabice / Balení'] = prehled.apply(
-            lambda r: prepocet_na_baleni(r['Popis'], r['Zůstatek (množství)']), axis=1
-        )
-
-        tabulka = prehled[[
-            'Lokace_Nazev', 'Zůstatek (množství)', 'Krabice / Balení', 
-            'Číslo šarže', 'Expirace (stav)', 'Poslední příjem'
-        ]].sort_values(by='Zůstatek (množství)', ascending=False)
-        tabulka.rename(columns={'Lokace_Nazev': 'Lokace skladu'}, inplace=True)
-
-        st.dataframe(tabulka, use_container_width=True, hide_index=True)
+        # Místo široké tabulky vykreslíme pro mobil hezké karty pod sebou
+        st.write("📍 **Kde přesně to leží:**")
+        prehled = skupina.sort_values(by='Zůstatek (množství)', ascending=False)
+        
+        for _, row in prehled.iterrows():
+            bal_str = prepocet_na_baleni(row['Popis'], row['Zůstatek (množství)'])
+            st.markdown(f"""
+            <div class="mobile-detail-card">
+                <strong>{row['Lokace_Nazev']}</strong> &nbsp;—&nbsp; {row['Zůstatek (množství)']:g} j. <i>({bal_str})</i><br>
+                <span style="color:#64748b;">Šarže:</span> {row['Číslo šarže']} | <span style="color:#64748b;">Exp:</span> {row['Expirace (stav)']}
+            </div>
+            """, unsafe_allow_html=True)
+            
         st.markdown('</div>', unsafe_allow_html=True)
 
 # --- HLAVNÍ APLIKACE ---
@@ -612,13 +594,13 @@ if not os.path.exists(EXCEL_FILE):
 else:
     stock_df = load_stock_data(EXCEL_FILE)
 
-vybrana_lokace = st.radio(
-    "Filtrovat sklad:",
+# HLAVNÍ FILTR - Pro mobil je Selectbox milionkrát lepší než Radio buttons
+vybrana_lokace = st.selectbox(
+    "📍 Vyber sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
-    horizontal=True
+    index=0
 )
 
-# Zjednodušené taby (bez foťáku)
 tab_rucni, tab_inventura, tab_nesrovnalosti, tab_admin = st.tabs([
     "🔍 Hledat", "📋 Inventura", "⚠️ Hlášení", "🔄 Data"
 ])
@@ -629,14 +611,13 @@ with tab_rucni:
         seznam_zbozi = sorted(stock_df['Popis'].dropna().unique().tolist())
 
         vybrany_produkt = st.selectbox(
-            "⚡ Našeptávač:",
+            "⚡ Našeptávač zboží:",
             options=seznam_zbozi,
             index=None,
-            placeholder="Napiš název (např. Folpan, Bizon, Ninja)..."
+            placeholder="Napiš název (např. Folpan, Bizon)..."
         )
 
-        st.caption("— NEBO hledej podle šarže či kódu —")
-        volny_text = st.text_input("Zadej číslo šarže nebo kód:", placeholder="např. 7426507...")
+        volny_text = st.text_input("Nebo hledej podle šarže / kódu:", placeholder="např. 7426507...")
 
         if vybrany_produkt:
             vysledky = stock_df[stock_df['Popis'] == vybrany_produkt]
@@ -656,7 +637,6 @@ with tab_rucni:
 # 2. MOBILNÍ INVENTURA
 with tab_inventura:
     st.subheader("📋 Mobilní inventura")
-    st.caption("Najdi položku přes našeptávač, nebo jen roluj seznamem.")
 
     if "inv_lokace" not in st.session_state:
         st.session_state.inv_lokace = "Boršice"
@@ -679,7 +659,6 @@ with tab_inventura:
         inv_items = inv_df.groupby(['Číslo zboží', 'Popis', 'Číslo šarže', 'Lokace_Nazev'], dropna=False)['Zůstatek (množství)'].sum().reset_index()
         inv_items = inv_items[inv_items['Zůstatek (množství)'] > 0].sort_values('Popis')
 
-        # Načtení uložených záznamů
         hotove_zaznamy = {}
         log_df = pd.DataFrame()
         if os.path.exists(INV_FILE):
@@ -699,18 +678,16 @@ with tab_inventura:
             st.progress(spocitano / celkem_polozek)
             st.markdown(f"**Průběh:** Spočítáno **{spocitano}** z **{celkem_polozek}** položek.")
             
-            # --- NAŠEPTÁVAČ PRO INVENTURU ---
             dostupne_nazvy = sorted(inv_items['Popis'].unique().tolist())
             hledany_nazev = st.selectbox(
                 "🔍 Rychlé vyhledání (našeptávač):",
                 options=dostupne_nazvy,
                 index=None,
-                placeholder="Vyber produkt pro rychlé zadání..."
+                placeholder="Vyber produkt..."
             )
             
             st.write("---")
             
-            # Rozřazení do 3 skupin pro lepší UX
             skupina_vyhledano = []
             skupina_zbyva = []
             skupina_hotovo = []
@@ -719,10 +696,8 @@ with tab_inventura:
                 klic_zaznamu = f"{row['Číslo zboží']}|{row['Číslo šarže']}|{row['Lokace_Nazev']}"
                 je_hotovo = klic_zaznamu in hotove_zaznamy
                 rozdil = hotove_zaznamy.get(klic_zaznamu, 0.0)
-                
                 data_karty = (idx, row, je_hotovo, rozdil, klic_zaznamu)
                 
-                # Kam položka patří?
                 if hledany_nazev and row['Popis'] == hledany_nazev:
                     skupina_vyhledano.append(data_karty)
                 elif je_hotovo:
@@ -730,7 +705,6 @@ with tab_inventura:
                 else:
                     skupina_zbyva.append(data_karty)
 
-            # Pomocná funkce pro vykreslení samotné karty (abychom nepsali kód 3x)
             def vykresli_kartu(idx, row, je_hotovo, rozdil, klic_zaznamu, rozbaleno=False):
                 kod = row['Číslo zboží']
                 nazev = row['Popis']
@@ -781,11 +755,10 @@ with tab_inventura:
                             time.sleep(1.2)
                             st.rerun()
 
-            # Zobrazení skupin
             if skupina_vyhledano:
                 st.write("#### 🔍 Právě vyhledáno")
                 for karta in skupina_vyhledano:
-                    vykresli_kartu(*karta, rozbaleno=True)  # <-- Vyhledané se samo ihned otevře
+                    vykresli_kartu(*karta, rozbaleno=True)
                 st.write("---")
 
             if skupina_zbyva:
@@ -801,32 +774,31 @@ with tab_inventura:
         else:
             st.info("Na této lokaci není podle systému žádné zboží.")
 
-        # Tabulka chyb a tlačítko stažení pod inventurou
+        # Mobilní zobrazení chyb místo široké tabulky (karty pod sebou)
         if not log_df.empty:
             chyby_df = log_df[log_df['Rozdíl'] != 0].copy()
             if not chyby_df.empty:
                 st.write("---")
                 st.subheader("⚠️ Zjištěné rozdíly")
-                st.dataframe(
-                    chyby_df[['Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl']], 
-                    use_container_width=True, 
-                    hide_index=True
-                )
+                for _, r in chyby_df.iterrows():
+                    st.error(f"📦 **{r['Popis']}** (Šarže: {r['Šarže']})\n\n"
+                             f"Systém: {r['Systém']:g} ➔ Fyzicky: {r['Fyzicky']:g} **(Rozdíl: {r['Rozdíl']:g} j.)**")
 
         if os.path.exists(INV_FILE):
             st.write("---")
             with open(INV_FILE, "r", encoding="utf-8-sig") as f_down:
                 st.download_button(
-                    label="📥 Stáhnout výsledky inventury (CSV)",
+                    label="📥 Stáhnout inventuru (CSV)",
                     data=f_down.read(),
                     file_name=f"inventura_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
+
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("Hlášení")
-    st.caption("Nesedí stav na skladě s realitou? Zapiš to sem pro vedoucího skladu.")
+    st.subheader("⚠️ Hlášení")
+    st.caption("Nesedí stav mimo inventuru? Zapiš to sem.")
 
     with st.form("form_nesrovnalost", clear_on_submit=True):
         polozka_hledat = st.text_input("Název nebo kód zboží:")
@@ -836,43 +808,38 @@ with tab_nesrovnalosti:
         stav_realita = st.number_input("Fyzicky napočítáno (ks/l):", min_value=0.0, step=1.0)
         poznamka = st.text_area("Poznámka:")
 
-        odeslat = st.form_submit_button("💾 Uložit hlášení")
-        if odeslat:
+        if st.form_submit_button("💾 Uložit hlášení", use_container_width=True):
             if polozka_hledat:
                 uloz_nesrovnalost(
                     "", polozka_hledat, lokace_zadat, sarze_zadat,
                     stav_system, stav_realita, poznamka
                 )
-                st.success("✅ Nesrovnalost byla uložena.")
+                st.success("✅ Nesrovnalost uložena.")
             else:
-                st.error("Vyplň prosím název zboží.")
+                st.error("Vyplň název zboží.")
 
     if os.path.exists(NESROVNALOSTI_FILE):
         st.write("---")
-        st.subheader("Protokol chyb")
-        df_log = pd.read_csv(NESROVNALOSTI_FILE, encoding='utf-8-sig')
-        st.dataframe(df_log.tail(10), use_container_width=True, hide_index=True)
-
         with open(NESROVNALOSTI_FILE, "r", encoding="utf-8-sig") as f_down:
-            csv_obsah = f_down.read()
-
-        st.download_button(
-            label="📥 Stáhnout protokol (CSV)",
-            data=csv_obsah,
-            file_name="nesrovnalosti_sklad.csv",
-            mime="text/csv"
-        )
+            st.download_button(
+                label="📥 Stáhnout hlášení (CSV)",
+                data=f_down.read(),
+                file_name="nesrovnalosti_sklad.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 
 # 4. ZÁLOŽKA: NAHRÁNÍ NOVÉHO EXCELU
 with tab_admin:
-    st.subheader("Aktualizace skladových dat")
-    st.caption("Nahraj čerstvý export z Business Central.")
+    st.subheader("🔄 Aktualizace dat")
+    st.caption("Nahraj export z Business Central.")
     
-    novy_soubor = st.file_uploader("Nahraj nový soubor skladu (.xlsx)", type=["xlsx"])
+    novy_soubor = st.file_uploader("Vyber soubor (.xlsx)", type=["xlsx"])
     if novy_soubor is not None:
-        if st.button("🚀 Přepsat data skladu a aktualizovat", type="primary"):
+        if st.button("🚀 Přepsat data skladu", type="primary", use_container_width=True):
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             st.cache_data.clear()
-            st.success("✅ Sklad byl úspěšně aktualizován!")
+            st.success("✅ Aktualizováno!")
+            time.sleep(1)
             st.rerun()
