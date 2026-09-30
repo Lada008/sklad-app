@@ -75,7 +75,7 @@ st.markdown("""
         background: #ffffff !important;
         border-radius: 14px;
         padding: 16px;
-        margin-bottom: 16px;
+        margin-bottom: 8px;
         box-shadow: 0 3px 10px rgba(0,0,0,0.05);
         border: 1px solid #e2e8f0;
     }
@@ -174,14 +174,16 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Mobilní karta pro detail lokace místo tabulky */
     .mobile-detail-card {
-        background: #f1f5f9;
+        background: #ffffff;
         border-radius: 8px;
-        padding: 10px;
+        padding: 12px;
         margin-bottom: 8px;
         font-size: 0.85rem;
-        border-left: 4px solid #cbd5e1;
+        border-left: 4px solid #2e7d32;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        border: 1px solid #e2e8f0;
+        border-left-width: 4px;
     }
     .mobile-detail-card strong {
         color: #0f172a;
@@ -205,67 +207,43 @@ LOC_MAP = {
 }
 
 def format_location_name(loc, prodejce):
-    if not isinstance(loc, str):
-        return '-'
-    if loc in LOC_MAP:
-        return LOC_MAP[loc]
+    if not isinstance(loc, str): return '-'
+    if loc in LOC_MAP: return LOC_MAP[loc]
     if loc.startswith('K.'):
         nazev_komise = loc[2:].upper()
         prodejce_str = str(prodejce).strip().upper()
-        
-        if prodejce_str in ['TRČÁLEK', 'TRCALEK']:
-            return f"🤝 Komise {nazev_komise} (Valmez)"
-        else:
-            return f"🤝 Komise {nazev_komise} (Boršice)"
+        if prodejce_str in ['TRČÁLEK', 'TRCALEK']: return f"🤝 Komise {nazev_komise} (Valmez)"
+        else: return f"🤝 Komise {nazev_komise} (Boršice)"
     return loc
 
 def format_category_name(cat):
-    if not isinstance(cat, str):
-        return 'Ostatní'
+    if not isinstance(cat, str): return 'Ostatní'
     c = cat.upper()
-    if 'HERBICID' in c or c.startswith('H '):
-        return '🌿 Herbicid'
-    if 'FUNGICID' in c or c.startswith('F '):
-        return '🍄 Fungicid'
-    if 'INSEKTICID' in c or c.startswith('I '):
-        return '🐛 Insekticid'
-    if 'HNOJIV' in c or 'SH' in c or 'PH' in c:
-        return '🌾 Hnojivo'
-    if 'GRAMIN' in c:
-        return '🌱 Graminicid'
-    if 'MOŘID' in c:
-        return '🛡 Mořidlo'
-    if 'REGULÁTOR' in c or 'RR' in c:
-        return '⚡ Regulátor'
-    if 'ADITIV' in c or c.startswith('A '):
-        return '💧 Aditivum'
-    if 'BIO' in c:
-        return '🌱 Bio'
-    if 'MALÉ BALENÍ' in c or 'MB' in c:
-        return '📦 Malé balení'
+    if 'HERBICID' in c or c.startswith('H '): return '🌿 Herbicid'
+    if 'FUNGICID' in c or c.startswith('F '): return '🍄 Fungicid'
+    if 'INSEKTICID' in c or c.startswith('I '): return '🐛 Insekticid'
+    if 'HNOJIV' in c or 'SH' in c or 'PH' in c: return '🌾 Hnojivo'
+    if 'GRAMIN' in c: return '🌱 Graminicid'
+    if 'MOŘID' in c: return '🛡 Mořidlo'
+    if 'REGULÁTOR' in c or 'RR' in c: return '⚡ Regulátor'
+    if 'ADITIV' in c or c.startswith('A '): return '💧 Aditivum'
+    if 'BIO' in c: return '🌱 Bio'
+    if 'MALÉ BALENÍ' in c or 'MB' in c: return '📦 Malé balení'
     return cat
 
 def sklonuj(pocet, jednotka):
     p = abs(pocet)
-    if jednotka == 'kanystr':
-        return f"{pocet} kanystr" if p == 1 else (f"{pocet} kanystry" if 2 <= p <= 4 else f"{pocet} kanystrů")
-    if jednotka == 'krabice':
-        return f"{pocet} krabice" if 1 <= p <= 4 else f"{pocet} krabic"
-    if jednotka == 'lahev':
-        return f"{pocet} láhev" if p == 1 else (f"{pocet} láhve" if 2 <= p <= 4 else f"{pocet} lahví")
-    if jednotka == 'pytel':
-        return f"{pocet} pytel" if p == 1 else (f"{pocet} pytle" if 2 <= p <= 4 else f"{pocet} pytlů")
-    if jednotka == 'kus':
-        return f"{pocet} kus" if p == 1 else (f"{pocet} kusy" if 2 <= p <= 4 else f"{pocet} kusů")
-    if jednotka == 'paleta':
-        return f"{pocet} celá paleta" if p == 1 else (f"{pocet} celé palety" if 2 <= p <= 4 else f"{pocet} celých palet")
-    if jednotka == 'baleni':
-        return f"{pocet} balení"
+    if jednotka == 'kanystr': return f"{pocet} kanystr" if p == 1 else (f"{pocet} kanystry" if 2 <= p <= 4 else f"{pocet} kanystrů")
+    if jednotka == 'krabice': return f"{pocet} krabice" if 1 <= p <= 4 else f"{pocet} krabic"
+    if jednotka == 'lahev': return f"{pocet} láhev" if p == 1 else (f"{pocet} láhve" if 2 <= p <= 4 else f"{pocet} lahví")
+    if jednotka == 'pytel': return f"{pocet} pytel" if p == 1 else (f"{pocet} pytle" if 2 <= p <= 4 else f"{pocet} pytlů")
+    if jednotka == 'kus': return f"{pocet} kus" if p == 1 else (f"{pocet} kusy" if 2 <= p <= 4 else f"{pocet} kusů")
+    if jednotka == 'paleta': return f"{pocet} celá paleta" if p == 1 else (f"{pocet} celé palety" if 2 <= p <= 4 else f"{pocet} celých palet")
+    if jednotka == 'baleni': return f"{pocet} balení"
     return f"{pocet} {jednotka}"
 
 def ziskej_krok_baleni(popis):
-    if not isinstance(popis, str):
-        return 1.0
+    if not isinstance(popis, str): return 1.0
     m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m_mult:
         v = float(m_mult.group(2).replace(',', '.'))
@@ -281,118 +259,98 @@ def ziskej_krok_baleni(popis):
         return max(0.001, float(v))
     return 1.0
 
-def prepocet_na_baleni(popis, qty):
-    if not isinstance(popis, str) or qty is None or pd.isna(qty) or qty == 0:
+# VYLEPŠENÁ FUNKCE - Umožňuje vnucení libovolné velikosti balení z UI
+def prepocet_na_baleni(popis, qty, unit_size_base=None):
+    if not isinstance(popis, str) or qty is None or pd.isna(qty) or qty == 0: 
         return f"{qty:g} j."
 
-    m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
-    if m_mult:
-        ks_v_baleni = float(m_mult.group(1))
-        velikost_ks = float(m_mult.group(2).replace(',', '.'))
-        uom_raw = m_mult.group(3).lower()
+    uom_base = 'l'
+    if re.search(r'\b(kg|g)\b', popis, re.IGNORECASE): uom_base = 'kg'
 
-        if uom_raw in ['g', 'ml']: velikost_ks_base = velikost_ks / 1000.0
-        else: velikost_ks_base = velikost_ks
+    # Pokud si uživatel velikost balení nepřepsal ručně, použijeme chytrou detekci multipacků
+    if unit_size_base is None:
+        m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
+        if m_mult:
+            ks_v_baleni = float(m_mult.group(1))
+            velikost_ks = float(m_mult.group(2).replace(',', '.'))
+            u_raw = m_mult.group(3).lower()
+            v_base = velikost_ks / 1000.0 if u_raw in ['g', 'ml'] else velikost_ks
+            celkem_base_v_baleni = ks_v_baleni * v_base
+            if celkem_base_v_baleni > 0:
+                pocet = qty / celkem_base_v_baleni
+                return f"{pocet:g} balení ({m_mult.group(0).strip()})"
+                
+        unit_size_base = ziskej_krok_baleni(popis)
 
-        celkem_base_v_baleni = ks_v_baleni * velikost_ks_base
-        if celkem_base_v_baleni > 0:
-            pocet = qty / celkem_base_v_baleni
-            return f"{pocet:g} balení ({m_mult.group(0).strip()})"
+    if unit_size_base > 0:
+        pocet = qty / unit_size_base
+        if abs(pocet - round(pocet)) < 0.05:
+            n = int(round(pocet))
+            if uom_base == 'l': typ_obal = 'kanystr' if unit_size_base >= 3 else 'lahev'
+            elif uom_base == 'kg': typ_obal = 'pytel' if unit_size_base >= 15 else 'baleni'
+            else: typ_obal = 'baleni'
 
-    m = re.search(r'(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
-    if m:
-        val_str = m.group(1).replace(',', '.')
-        unit_size = float(val_str)
-        uom_raw = m.group(2).lower()
+            text_obalu = sklonuj(n, typ_obal)
+            krabice_info = ""
 
-        if uom_raw in ['g', 'ml']:
-            unit_size_base = unit_size / 1000.0
-            uom_base = 'kg' if uom_raw == 'g' else 'l'
+            if uom_base == 'l' and unit_size_base == 5 and n >= 4:
+                k = n // 4
+                zb = n % 4
+                if zb > 0: krabice_info = f" ({sklonuj(k, 'krabice')} + {sklonuj(zb, 'kanystr')})"
+                else: krabice_info = f" ({sklonuj(k, 'krabice')})"
+            elif uom_base == 'l' and (unit_size_base == 1) and n >= 12:
+                k = n // 12
+                zb = n % 12
+                if zb > 0: krabice_info = f" ({sklonuj(k, 'krabice')} po 12 ks + {sklonuj(zb, 'lahev')})"
+                else: krabice_info = f" ({sklonuj(k, 'krabice')} po 12 ks)"
+
+            return f"{text_obalu} po {unit_size_base:g} {uom_base}{krabice_info}"
         else:
-            unit_size_base = unit_size
-            uom_base = 'l' if uom_raw in ['l', 'litr'] else ('kg' if uom_raw == 'kg' else uom_raw)
-
-        if unit_size_base > 0:
-            pocet = qty / unit_size_base
-            if abs(pocet - round(pocet)) < 0.05:
-                n = int(round(pocet))
-                if uom_base == 'l': typ_obal = 'kanystr' if unit_size_base >= 3 else 'lahev'
-                elif uom_base == 'kg': typ_obal = 'pytel' if unit_size_base >= 15 else 'baleni'
-                else: typ_obal = 'baleni'
-
-                text_obalu = sklonuj(n, typ_obal)
-                krabice_info = ""
-
-                if uom_base == 'l' and unit_size_base == 5 and n >= 4:
-                    k = n // 4
-                    zb = n % 4
-                    k_text = sklonuj(k, 'krabice')
-                    if zb > 0: krabice_info = f" ({k_text} + {sklonuj(zb, 'kanystr')})"
-                    else: krabice_info = f" ({k_text})"
-                elif uom_base == 'l' and (unit_size_base == 1 or unit_size == 1000) and n >= 12:
-                    k = n // 12
-                    zb = n % 12
-                    k_text = sklonuj(k, 'krabice')
-                    if zb > 0: krabice_info = f" ({k_text} po 12 ks + {sklonuj(zb, 'lahev')})"
-                    else: krabice_info = f" ({k_text} po 12 ks)"
-
-                puvodni_jednotka = m.group(0).strip()
-                return f"{text_obalu} po {puvodni_jednotka}{krabice_info}"
-            else:
-                puvodni_jednotka = m.group(0).strip()
-                return f"{qty:g} {uom_base} (~{pocet:.1f} balení po {puvodni_jednotka})"
-
-    if re.search(r'\bL\b', popis):
-        return f"{sklonuj(int(qty), 'lahev')} (1 l)"
-
+            return f"{qty:g} {uom_base} (~{pocet:.1f} balení po {unit_size_base:g} {uom_base})"
+            
     return f"{qty:g} j."
 
-def paletova_kalkulacka(popis, qty):
-    if not isinstance(popis, str) or qty is None or qty <= 0:
-        return None
-    if '25' in popis and 'kg' in popis.lower():
+def paletova_kalkulacka(popis, qty, unit_size_base=None):
+    if not isinstance(popis, str) or qty is None or qty <= 0: return None
+    
+    uom_base = 'l'
+    if re.search(r'\b(kg|g)\b', popis, re.IGNORECASE): uom_base = 'kg'
+        
+    if unit_size_base is None:
+        unit_size_base = ziskej_krok_baleni(popis)
+
+    if uom_base == 'kg' and unit_size_base == 25:
         pytle = qty / 25.0
         if pytle >= 30:
             palet = int(pytle // 40)
             zb_pytle = int(pytle % 40)
             if palet > 0:
-                pal_text = sklonuj(palet, 'paleta')
-                if zb_pytle == 0:
-                    return f"🚜 Palety: {pal_text} (po 40 pytlích / 1 tuna)"
-                return f"🚜 Palety: {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
-            else:
-                return f"🚜 Skoro paleta: {sklonuj(zb_pytle, 'pytel')} (chybí {40 - zb_pytle} do palety)"
-    if re.search(r'\b5\s*l\b', popis, re.IGNORECASE):
+                if zb_pytle == 0: return f"🚜 Palety: {sklonuj(palet, 'paleta')} (po 40 pytlích / 1 tuna)"
+                return f"🚜 Palety: {sklonuj(palet, 'paleta')} + {sklonuj(zb_pytle, 'pytel')} navrch"
+            else: return f"🚜 Skoro paleta: {sklonuj(zb_pytle, 'pytel')} (chybí {40 - zb_pytle} do palety)"
+            
+    if uom_base == 'l' and unit_size_base == 5:
         kanystru = qty / 5.0
         krabic = kanystru / 4.0
         if krabic >= 20:
             palet = int(krabic // 32)
             zb_krabic = int(krabic % 32)
             if palet > 0:
-                pal_text = sklonuj(palet, 'paleta')
-                if zb_krabic == 0:
-                    return f"🚜 Palety: {pal_text} (po 32 krabicích / 640 l)"
-                return f"🚜 Palety: {pal_text} + {sklonuj(zb_krabic, 'krabice')} navrch"
-            else:
-                return f"🚜 Skoro paleta: {sklonuj(zb_krabic, 'krabice')} (chybí {32 - zb_krabic} do palety)"
+                if zb_krabic == 0: return f"🚜 Palety: {sklonuj(palet, 'paleta')} (po 32 krabicích / 640 l)"
+                return f"🚜 Palety: {sklonuj(palet, 'paleta')} + {sklonuj(zb_krabic, 'krabice')} navrch"
+            else: return f"🚜 Skoro paleta: {sklonuj(zb_krabic, 'krabice')} (chybí {32 - zb_krabic} do palety)"
     return None
 
 def format_expirace_semafor(dt_obj):
-    if pd.isna(dt_obj):
-        return "⚪ Bez data"
+    if pd.isna(dt_obj): return "⚪ Bez data"
     dnes = pd.Timestamp.now().normalize()
     dny = (dt_obj - dnes).days
     datum_str = dt_obj.strftime('%d.%m.%Y')
-    if dny < 0:
-        return f"🔴 EXPIROVÁNO ({datum_str})"
-    elif dny <= 90:
-        return f"🔴 Za {dny} dní ({datum_str})"
-    elif dny <= 180:
-        return f"🟠 Za {dny//30} měs. ({datum_str})"
-    elif dny <= 365:
-        return f"🟡 Do roka ({datum_str})"
-    else:
-        return f"🟢 {datum_str}"
+    if dny < 0: return f"🔴 EXPIROVÁNO ({datum_str})"
+    elif dny <= 90: return f"🔴 Za {dny} dní ({datum_str})"
+    elif dny <= 180: return f"🟠 Za {dny//30} měs. ({datum_str})"
+    elif dny <= 365: return f"🟡 Do roka ({datum_str})"
+    else: return f"🟢 {datum_str}"
 
 @st.cache_data
 def load_stock_data(filepath):
@@ -523,16 +481,25 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
     
     for (kod_zbozi, nazev_zbozi, kategorie), skupina in produkty:
         celkem_ks = skupina['Zůstatek (množství)'].sum()
-        baleni_celkem = prepocet_na_baleni(nazev_zbozi, celkem_ks)
-        palety_text = paletova_kalkulacka(nazev_zbozi, celkem_ks)
+        default_vel = ziskej_krok_baleni(nazev_zbozi)
+        
+        # Přečtení uživatelské hodnoty ze session state, aby se stihla použít v přepočtu níže
+        klic_velikosti = f"velikost_{kod_zbozi}"
+        if klic_velikosti in st.session_state:
+            vlastni_velikost = st.session_state[klic_velikosti]
+        else:
+            vlastni_velikost = default_vel
+
+        baleni_celkem = prepocet_na_baleni(nazev_zbozi, celkem_ks, vlastni_velikost)
+        palety_text = paletova_kalkulacka(nazev_zbozi, celkem_ks, vlastni_velikost)
 
         st.markdown(f"""
-        <div class="product-card">
+        <div class="product-card" style="margin-bottom: 8px;">
             <div class="product-title">
                 <span>{nazev_zbozi}</span>
                 <span class="category-badge">{kategorie}</span>
             </div>
-            <div style="margin-bottom: 10px;">
+            <div style="margin-bottom: 12px;">
                 <span class="product-code">KÓD: {kod_zbozi}</span>
             </div>
             <div class="stock-grid">
@@ -545,7 +512,18 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
                     <div class="stock-box-value" style="font-size: 0.95rem;">{baleni_celkem}</div>
                 </div>
             </div>
+        </div>
         """, unsafe_allow_html=True)
+
+        # Elegantní expander pro úpravu rovnou pod rámečkem
+        with st.expander("⚙️ Úprava velikosti balení (přepočet)"):
+            st.number_input(
+                "Nastav přesnou velikost 1 balení (l/kg):", 
+                value=float(default_vel), 
+                min_value=0.001, 
+                step=1.0 if default_vel >= 1 else 0.5,
+                key=klic_velikosti
+            )
 
         if palety_text:
             st.markdown(f'<div class="pallet-banner">{palety_text}</div>', unsafe_allow_html=True)
@@ -565,12 +543,11 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             </div>
             """, unsafe_allow_html=True)
 
-        # Místo široké tabulky vykreslíme pro mobil hezké karty pod sebou
         st.write("📍 **Kde přesně to leží:**")
         prehled = skupina.sort_values(by='Zůstatek (množství)', ascending=False)
         
         for _, row in prehled.iterrows():
-            bal_str = prepocet_na_baleni(row['Popis'], row['Zůstatek (množství)'])
+            bal_str = prepocet_na_baleni(row['Popis'], row['Zůstatek (množství)'], vlastni_velikost)
             st.markdown(f"""
             <div class="mobile-detail-card">
                 <strong>{row['Lokace_Nazev']}</strong> &nbsp;—&nbsp; {row['Zůstatek (množství)']:g} j. <i>({bal_str})</i><br>
@@ -578,7 +555,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             </div>
             """, unsafe_allow_html=True)
             
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.write("---")
 
 # --- HLAVNÍ APLIKACE ---
 st.markdown("""
@@ -594,7 +571,6 @@ if not os.path.exists(EXCEL_FILE):
 else:
     stock_df = load_stock_data(EXCEL_FILE)
 
-# HLAVNÍ FILTR - Pro mobil je Selectbox milionkrát lepší než Radio buttons
 vybrana_lokace = st.selectbox(
     "📍 Vyber sklad:",
     ["Všechny sklady", "Boršice", "Valmez", "Jen Komise"],
@@ -715,11 +691,12 @@ with tab_inventura:
                 ikona = "🟢" if (je_hotovo and rozdil == 0) else ("🔴" if je_hotovo else "🟠")
                 
                 with st.expander(f"{ikona} {nazev} (Šarže: {sarze} | {lokace_nazev})", expanded=rozbaleno):
-                    st.markdown(f"**Kód:** {kod} | **Očekáváno:** {system_stav:g} j.")
-                    
                     if je_hotovo:
+                        st.markdown(f"**Kód:** {kod} | **V systému bylo:** {system_stav:g} j.")
                         barva_textu = "green" if rozdil == 0 else "red"
                         st.markdown(f"Zadáno: **{system_stav + rozdil:g} j.** (<span style='color:{barva_textu}; font-weight:bold'>Rozdíl: {rozdil:g} j.</span>)", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"**Kód:** {kod} | **Očekáváno:** ❓ *(slepá inventura)*")
                     
                     krok = ziskej_krok_baleni(nazev)
                     
@@ -727,33 +704,37 @@ with tab_inventura:
                         fyzicky_stav = st.number_input(
                             "Fyzicky napočítáno:", 
                             min_value=0.0, 
-                            value=float(system_stav) if not je_hotovo else float(system_stav + rozdil),
+                            value=float(system_stav + rozdil) if je_hotovo else None,
                             step=float(krok),
+                            placeholder="Zadej počet...",
                             key=f"inv_num_{idx}"
                         )
                         
                         if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
-                            akt_rozdil = fyzicky_stav - system_stav
-                            zaznam = [
-                                datetime.now().strftime('%d.%m.%Y %H:%M'),
-                                lokace_nazev, kod, nazev, sarze,
-                                system_stav, fyzicky_stav, akt_rozdil
-                            ]
-                            
-                            file_exists = os.path.exists(INV_FILE)
-                            with open(INV_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
-                                writer = csv.writer(f)
-                                if not file_exists:
-                                    writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
-                                writer.writerow(zaznam)
-                            
-                            if akt_rozdil == 0:
-                                st.success("Všechno sedí! 👍")
+                            if fyzicky_stav is None:
+                                st.error("Zadej prosím počet (i kdyby to byla 0)!")
                             else:
-                                st.error(f"⚠ Uloženo s rozdílem {akt_rozdil:g} j.")
+                                akt_rozdil = fyzicky_stav - system_stav
+                                zaznam = [
+                                    datetime.now().strftime('%d.%m.%Y %H:%M'),
+                                    lokace_nazev, kod, nazev, sarze,
+                                    system_stav, fyzicky_stav, akt_rozdil
+                                ]
                                 
-                            time.sleep(1.2)
-                            st.rerun()
+                                file_exists = os.path.exists(INV_FILE)
+                                with open(INV_FILE, mode='a', newline='', encoding='utf-8-sig') as f:
+                                    writer = csv.writer(f)
+                                    if not file_exists:
+                                        writer.writerow(['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'])
+                                    writer.writerow(zaznam)
+                                
+                                if akt_rozdil == 0:
+                                    st.success(f"Všechno sedí! 👍 (Systém hlásil {system_stav:g} j.)")
+                                else:
+                                    st.error(f"⚠ Uloženo s rozdílem {akt_rozdil:g} j. (Systém hlásil {system_stav:g} j.)")
+                                    
+                                time.sleep(1.5)
+                                st.rerun()
 
             if skupina_vyhledano:
                 st.write("#### 🔍 Právě vyhledáno")
@@ -774,7 +755,6 @@ with tab_inventura:
         else:
             st.info("Na této lokaci není podle systému žádné zboží.")
 
-        # Mobilní zobrazení chyb místo široké tabulky (karty pod sebou)
         if not log_df.empty:
             chyby_df = log_df[log_df['Rozdíl'] != 0].copy()
             if not chyby_df.empty:
@@ -797,7 +777,7 @@ with tab_inventura:
 
 # 3. ZÁLOŽKA: HLÁŠENÍ NESROVNALOSTÍ
 with tab_nesrovnalosti:
-    st.subheader("⚠️ Hlášení")
+    st.subheader("⚠️️ Hlášení")
     st.caption("Nesedí stav mimo inventuru? Zapiš to sem.")
 
     with st.form("form_nesrovnalost", clear_on_submit=True):
