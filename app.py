@@ -275,12 +275,24 @@ def sklonuj(pocet, jednotka):
     return f"{pocet} {jednotka}"
 
 def prepocet_na_baleni(popis, qty):
-    if not isinstance(popis, str) or qty is None:
-        return f"{qty:g} ks"
+    if not isinstance(popis, str) or qty is None or pd.isna(qty) or qty == 0:
+        return f"{qty:g} j."
 
     m_mult = re.search(r'(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m_mult:
-        return f"{qty:g} balení ({m_mult.group(0)})"
+        ks_v_baleni = float(m_mult.group(1))
+        velikost_ks = float(m_mult.group(2).replace(',', '.'))
+        uom_raw = m_mult.group(3).lower()
+
+        if uom_raw in ['g', 'ml']:
+            velikost_ks_base = velikost_ks / 1000.0
+        else:
+            velikost_ks_base = velikost_ks
+
+        celkem_base_v_baleni = ks_v_baleni * velikost_ks_base
+        if celkem_base_v_baleni > 0:
+            pocet = qty / celkem_base_v_baleni
+            return f"{pocet:g} balení ({m_mult.group(0).strip()})"
 
     m = re.search(r'(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b', popis, re.IGNORECASE)
     if m:
@@ -288,26 +300,28 @@ def prepocet_na_baleni(popis, qty):
         unit_size = float(val_str)
         uom_raw = m.group(2).lower()
 
-        if uom_raw in ['ml', 'g'] and qty < 1000 and unit_size >= 10:
-            return f"{sklonuj(int(qty), 'baleni')} ({m.group(0).strip()})"
+        if uom_raw in ['g', 'ml']:
+            unit_size_base = unit_size / 1000.0
+            uom_base = 'kg' if uom_raw == 'g' else 'l'
+        else:
+            unit_size_base = unit_size
+            uom_base = 'l' if uom_raw in ['l', 'litr'] else ('kg' if uom_raw == 'kg' else uom_raw)
 
-        uom = 'l' if uom_raw in ['l', 'litr'] else ('kg' if uom_raw == 'kg' else uom_raw)
-
-        if unit_size > 0:
-            pocet = qty / unit_size
-            if abs(pocet - round(pocet)) < 0.02:
+        if unit_size_base > 0:
+            pocet = qty / unit_size_base
+            if abs(pocet - round(pocet)) < 0.05:
                 n = int(round(pocet))
-                if uom == 'l':
-                    typ_obal = 'kanystr' if unit_size >= 3 else 'lahev'
-                elif uom == 'kg':
-                    typ_obal = 'pytel' if unit_size >= 15 else 'baleni'
+                if uom_base == 'l':
+                    typ_obal = 'kanystr' if unit_size_base >= 3 else 'lahev'
+                elif uom_base == 'kg':
+                    typ_obal = 'pytel' if unit_size_base >= 15 else 'baleni'
                 else:
                     typ_obal = 'baleni'
 
                 text_obalu = sklonuj(n, typ_obal)
-
                 krabice_info = ""
-                if uom == 'l' and unit_size == 5 and n >= 4:
+
+                if uom_base == 'l' and unit_size_base == 5 and n >= 4:
                     k = n // 4
                     zb = n % 4
                     k_text = sklonuj(k, 'krabice')
@@ -315,7 +329,7 @@ def prepocet_na_baleni(popis, qty):
                         krabice_info = f" ({k_text} + {sklonuj(zb, 'kanystr')})"
                     else:
                         krabice_info = f" ({k_text})"
-                elif uom == 'l' and unit_size == 1 and n >= 12:
+                elif uom_base == 'l' and (unit_size_base == 1 or unit_size == 1000) and n >= 12:
                     k = n // 12
                     zb = n % 12
                     k_text = sklonuj(k, 'krabice')
@@ -324,37 +338,45 @@ def prepocet_na_baleni(popis, qty):
                     else:
                         krabice_info = f" ({k_text} po 12 ks)"
 
-                return f"{text_obalu} po {unit_size:g} {uom}{krabice_info}"
+                puvodni_jednotka = m.group(0).strip()
+                return f"{text_obalu} po {puvodni_jednotka}{krabice_info}"
             else:
-                return f"{qty:g} {uom} (~{pocet:.1f} balení po {unit_size:g} {uom})"
+                puvodni_jednotka = m.group(0).strip()
+                return f"{qty:g} {uom_base} (~{pocet:.1f} balení po {puvodni_jednotka})"
 
-    if re.search(r'\bL\b', popis, re.IGNORECASE):
+    if re.search(r'\bL\b', popis):
         return f"{sklonuj(int(qty), 'lahev')} (1 l)"
 
-    return f"{qty:g} ks"
+    return f"{qty:g} j."
 
 def paletova_kalkulacka(popis, qty):
-    if not isinstance(popis, str) or qty is None:
+    if not isinstance(popis, str) or qty is None or qty <= 0:
         return None
     if '25' in popis and 'kg' in popis.lower():
         pytle = qty / 25.0
         if pytle >= 30:
             palet = int(pytle // 40)
             zb_pytle = int(pytle % 40)
-            pal_text = sklonuj(palet, 'paleta')
-            if zb_pytle == 0:
-                return f"🚜 Palety: {pal_text} (po 40 pytlích / 1 tuna)"
-            return f"🚜 Palety: {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
+            if palet > 0:
+                pal_text = sklonuj(palet, 'paleta')
+                if zb_pytle == 0:
+                    return f"🚜 Palety: {pal_text} (po 40 pytlích / 1 tuna)"
+                return f"🚜 Palety: {pal_text} + {sklonuj(zb_pytle, 'pytel')} navrch"
+            else:
+                return f"🚜 Skoro paleta: {sklonuj(zb_pytle, 'pytel')} (chybí {40 - zb_pytle} do palety)"
     if re.search(r'\b5\s*l\b', popis, re.IGNORECASE):
         kanystru = qty / 5.0
         krabic = kanystru / 4.0
         if krabic >= 20:
             palet = int(krabic // 32)
             zb_krabic = int(krabic % 32)
-            pal_text = sklonuj(palet, 'paleta')
-            if zb_krabic == 0:
-                return f"🚜 Palety: {pal_text} (po 32 krabicích / 640 l)"
-            return f"🚜 Palety: {pal_text} + {sklonuj(zb_krabic, 'krabice')} navrch"
+            if palet > 0:
+                pal_text = sklonuj(palet, 'paleta')
+                if zb_krabic == 0:
+                    return f"🚜 Palety: {pal_text} (po 32 krabicích / 640 l)"
+                return f"🚜 Palety: {pal_text} + {sklonuj(zb_krabic, 'krabice')} navrch"
+            else:
+                return f"🚜 Skoro paleta: {sklonuj(zb_krabic, 'krabice')} (chybí {32 - zb_krabic} do palety)"
     return None
 
 def format_expirace_semafor(dt_obj):
@@ -395,11 +417,72 @@ def load_stock_data(filepath):
     df_active = df[df['Zůstatek (množství)'] > 0].copy()
     df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
 
-    grouped = df_active.groupby(
+    # --- OPRAVA PRO KOMISE (PŘIHRÁDKY) ---
+    mask_k = df_active['Kód lokace'].str.startswith('K.', na=False)
+    
+    # 1. Běžné sklady - zachováme původní jednoduchou logiku
+    non_k = df_active[~mask_k]
+    grouped_non_k = non_k.groupby(
         ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Prodejce Kód', 'Číslo šarže', 'Datum expirace'],
         dropna=False,
         as_index=False
     ).agg({'Zůstatek (množství)': 'sum'})
+
+    # 2. Komisní sklady - u nich se Zůstatek kvůli FIFO špatně páruje na prodejce. 
+    # Sečteme fyzicky dostupné zboží na celé lokaci dohromady.
+    k_locs = df_active[mask_k]
+    k_grouped = k_locs.groupby(
+        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Číslo šarže', 'Datum expirace'],
+        dropna=False,
+        as_index=False
+    ).agg({'Zůstatek (množství)': 'sum'})
+    
+    # 3. Zjistíme reálný fyzický pohyb Valmezu (Trčálka) od začátku aktuálního roku
+    rok_start = pd.to_datetime(f"{datetime.now().year}-01-01")
+    df_rok = df[pd.to_datetime(df['Zúčtovací datum'], errors='coerce') >= rok_start].copy()
+    df_rok['Číslo šarže'] = df_rok['Číslo šarže'].fillna('-')
+    
+    trc_mask = df_rok['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
+    trc_batch_sums = df_rok[trc_mask].groupby(['Číslo zboží', 'Kód lokace', 'Číslo šarže'])['Množství'].sum().reset_index()
+    trc_batch_sums.rename(columns={'Množství': 'Trc_Mnozstvi'}, inplace=True)
+    
+    # 4. Odečteme reálný stav Trčálka z celkového zůstatku a zbytek hodíme do Boršic (Man)
+    merged_k = pd.merge(k_grouped, trc_batch_sums, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
+    merged_k['Trc_Mnozstvi'] = merged_k['Trc_Mnozstvi'].fillna(0)
+    
+    final_rows = []
+    for _, row in merged_k.iterrows():
+        total = row['Zůstatek (množství)']
+        # Zastropujeme hodnotu Trčálka, aby nebyla záporná nebo větší, než kolik celkově fyzicky je
+        trc_share = max(0, min(row['Trc_Mnozstvi'], total)) 
+        ostatni_share = total - trc_share
+        
+        base_dict = {
+            'Číslo zboží': row['Číslo zboží'],
+            'Popis': row['Popis'],
+            'Kód kategorie zboží': row['Kód kategorie zboží'],
+            'Kód lokace': row['Kód lokace'],
+            'Číslo šarže': row['Číslo šarže'],
+            'Datum expirace': row['Datum expirace']
+        }
+        
+        if trc_share > 0:
+            d = base_dict.copy()
+            d['Prodejce Kód'] = 'TRČÁLEK'  # Bude se jmenovat Valmez
+            d['Zůstatek (množství)'] = trc_share
+            final_rows.append(d)
+            
+        if ostatni_share > 0:
+            d = base_dict.copy()
+            d['Prodejce Kód'] = 'MAN'      # Bude se jmenovat Boršice
+            d['Zůstatek (množství)'] = ostatni_share
+            final_rows.append(d)
+            
+    if not final_rows:
+        grouped = grouped_non_k
+    else:
+        grouped_k_final = pd.DataFrame(final_rows)
+        grouped = pd.concat([grouped_non_k, grouped_k_final], ignore_index=True)
 
     grouped = pd.merge(grouped, posledni_prijem, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
 
@@ -410,7 +493,6 @@ def load_stock_data(filepath):
     grouped['Poslední příjem'] = grouped['Datum_Prijmu_Obj'].dt.strftime('%d.%m.%Y').fillna('-')
     grouped['Kategorie_Nazev'] = grouped['Kód kategorie zboží'].apply(format_category_name)
     
-    # Nově posíláme i kód prodejce pro správné pojmenování komise
     grouped['Lokace_Nazev'] = grouped.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
 
     return grouped
@@ -430,13 +512,11 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
     if vybrana_lokace == 'Boršice':
-        # Boršice = 151BO + komise, které NEJSOU od Trčálka
         mask_bo = (vysledky_df['Kód lokace'] == '151BO') 
         mask_komise_bo = vysledky_df['Kód lokace'].str.startswith('K.', na=False) & ~vysledky_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
         vysledky_df = vysledky_df[mask_bo | mask_komise_bo]
         
     elif vybrana_lokace == 'Valmez':
-        # Valmez = 151VM + komise od Trčálka
         mask_vm = (vysledky_df['Kód lokace'] == '151VM')
         mask_komise_vm = vysledky_df['Kód lokace'].str.startswith('K.', na=False) & vysledky_df['Prodejce Kód'].astype(str).str.upper().isin(['TRČÁLEK', 'TRCALEK'])
         vysledky_df = vysledky_df[mask_vm | mask_komise_vm]
@@ -595,7 +675,6 @@ with tab_foto:
                 {"nazev": "SEM_NAZEV", "kod": null}
                 """
 
-                # Opravené verze modelů Gemini
                 modely_k_vyzkouseni = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
                 response = None
                 posledni_chyba = None
