@@ -627,17 +627,18 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             
         st.write("---")
 
-# --- ZJIŠTĚNÍ SKUTEČNÉHO ČASU NAHRÁNÍ SOUBORU ---
-posledni_aktualizace = "Neznámý čas"
-if os.path.exists(TIME_FILE):
-    try:
-        with open(TIME_FILE, "r", encoding="utf-8") as f_time:
-            posledni_aktualizace = f_time.read().strip()
-    except Exception:
-        pass
-elif os.path.exists(EXCEL_FILE):
-    mtime = os.path.getmtime(EXCEL_FILE)
-    posledni_aktualizace = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y %H:%M')
+# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE ---
+if "posledni_nahrani" not in st.session_state:
+    if os.path.exists(TIME_FILE):
+        try:
+            with open(TIME_FILE, "r", encoding="utf-8") as f_time:
+                st.session_state.posledni_nahrani = f_time.read().strip()
+        except Exception:
+            st.session_state.posledni_nahrani = datetime.now().strftime('%d.%m.%Y %H:%M')
+    else:
+        st.session_state.posledni_nahrani = datetime.now().strftime('%d.%m.%Y %H:%M')
+
+posledni_aktualizace = st.session_state.posledni_nahrani
 
 # --- HLAVNÍ APLIKACE ---
 st.markdown(f"""
@@ -932,7 +933,10 @@ with tab_admin:
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             
+            # Okamžitý aktuální čas uložení
             aktualni_cas_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+            st.session_state.posledni_nahrani = aktualni_cas_str
+            
             with open(TIME_FILE, "w", encoding="utf-8") as f_time:
                 f_time.write(aktualni_cas_str)
 
