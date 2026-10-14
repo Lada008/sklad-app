@@ -480,4 +480,49 @@ def format_expirace_semafor(dt_obj):
     elif dny <= 365: return f"🟡 Do roka ({datum_str})"
     else: return f"🟢 {datum_str}"
 
-@st.cache_
+@st.cache_data
+def load_stock_data(filepath):
+    cols = [
+        'Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Kód Střediska', 
+        'Číslo šarže', 'Datum expirace', 'Zůstatek (množství)',
+        'Zúčtovací datum', 'Množství', 'Prodejce Kód'
+    ]
+    try:
+        df = pd.read_excel(filepath, usecols=cols)
+    except ValueError:
+        st.error("❌ Nahraný Excel nemá správnou strukturu (chybí potřebné sloupce).")
+        return pd.DataFrame()
+
+    prijmy = df[df['Množství'] > 0].copy()
+    prijmy['Číslo šarže'] = prijmy['Číslo šarže'].fillna('-')
+    posledni_prijem = prijmy.groupby(['Číslo zboží', 'Kód lokace', 'Číslo šarže'])['Zúčtovací datum'].max().reset_index()
+    posledni_prijem.rename(columns={'Zúčtovací datum': 'Datum posledního příjmu'}, inplace=True)
+
+    df_active = df[df['Zůstatek (množství)'] > 0].copy()
+    df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
+
+    df_active['Fyzicky_Sklad'] = df_active.apply(lambda row: get_fyzicky_sklad(row['Kód lokace'], row['Prodejce Kód']), axis=1)
+    df_active['Lokace_Nazev'] = df_active.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
+
+    grouped = df_active.groupby(
+        ['Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Fyzicky_Sklad', 'Lokace_Nazev', 'Číslo šarže', 'Datum expirace'],
+        dropna=False,
+        as_index=False
+    ).agg({'Zůstatek (množství)': 'sum'})
+
+    grouped = pd.merge(grouped, posledni_prijem, on=['Číslo zboží', 'Kód lokace', 'Číslo šarže'], how='left')
+
+    grouped['Datum_Exp_Obj'] = pd.to_datetime(grouped['Datum expirace'], errors='coerce')
+    grouped['Datum_Prijmu_Obj'] = pd.to_datetime(grouped['Datum posledního příjmu'], errors='coerce')
+
+    grouped['Expirace (stav)'] = grouped['Datum_Exp_Obj'].apply(format_expirace_semafor)
+    grouped['Poslední příjem'] = grouped['Datum_Prijmu_Obj'].dt.strftime('%d.%m.%Y').fillna('-')
+    grouped['Kategorie_Nazev'] = grouped['Kód kategorie zboží'].apply(format_category_name)
+    
+    return grouped
+
+def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, poznamka):
+    zaznam = [
+        datetime.now().strftime('%d.%m.%Y %H:%M'),
+        kod_zbozi, popis, lokace, sarze,
+        system_stav, real_stav, real_stav - system_stav, poznamka
