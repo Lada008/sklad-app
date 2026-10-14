@@ -627,7 +627,7 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             
         st.write("---")
 
-# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE ---
+# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE (POUZE Z NAŠÍ PAMĚTI NEBO SOUBORU) ---
 if "posledni_nahrani" not in st.session_state:
     if os.path.exists(TIME_FILE):
         try:
@@ -636,7 +636,11 @@ if "posledni_nahrani" not in st.session_state:
         except Exception:
             st.session_state.posledni_nahrani = datetime.now().strftime('%d.%m.%Y %H:%M')
     else:
-        st.session_state.posledni_nahrani = datetime.now().strftime('%d.%m.%Y %H:%M')
+        # Pokud soubor s časem neexistuje, uložíme rovnou aktuální čas jako výchozí
+        aktualni_cas_init = datetime.now().strftime('%d.%m.%Y %H:%M')
+        st.session_state.posledni_nahrani = aktualni_cas_init
+        with open(TIME_FILE, "w", encoding="utf-8") as f_time:
+            f_time.write(aktualni_cas_init)
 
 posledni_aktualizace = st.session_state.posledni_nahrani
 
@@ -933,7 +937,7 @@ with tab_admin:
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             
-            # Okamžitý aktuální čas uložení
+            # Okamžitý aktuální přesný čas nahrání
             aktualni_cas_str = datetime.now().strftime('%d.%m.%Y %H:%M')
             st.session_state.posledni_nahrani = aktualni_cas_str
             
