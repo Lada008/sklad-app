@@ -1,0 +1,15 @@
+name: Keep Streamlit Alive
+
+on:
+  schedule:
+    # Spustí se každých 25 minut
+    - cron: '*/25 * * * *'
+  workflow_dispatch: # Umožňuje spustit akci i ručně tlačítkem
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        run: |
+          curl -I https://sklad-asistent.streamlit.app/_stcore/health
