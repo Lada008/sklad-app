@@ -85,18 +85,29 @@ st.markdown("""
     }
     .main-header h1 {
         color: #ffffff !important;
-        font-size: 1.4rem !important;
+        font-size: 1.35rem !important;
         margin: 0 !important;
         font-weight: 800 !important;
         letter-spacing: -0.3px;
     }
+    .header-info {
+        text-align: right;
+    }
     .main-header .badge-terminal {
         background: rgba(255, 255, 255, 0.2);
         color: #ffffff !important;
-        padding: 4px 10px;
+        padding: 3px 9px;
         border-radius: 20px;
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         font-weight: 600;
+        display: inline-block;
+        margin-bottom: 3px;
+    }
+    .main-header .update-time {
+        color: #e2e8f0 !important;
+        font-size: 0.72rem;
+        display: block;
+        opacity: 0.95;
     }
 
     /* Záložky (Tabs) */
@@ -272,7 +283,6 @@ LOC_MAP = {
     'NACESTE': '🚚 Na cestě'
 }
 
-# --- RYCHLÁ PAMĚŤ PRO VLASTNÍ BALENÍ ---
 def get_custom_packs():
     if "custom_packs" not in st.session_state:
         if os.path.exists(CUSTOM_PACK_FILE):
@@ -524,7 +534,6 @@ def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, p
         writer.writerow(zaznam)
 
 def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
-    # Filtrování podle skutečného fyzického skladu (včetně správného přiřazení komisí)
     if vybrana_lokace == 'Boršice': 
         vysledky_df = vysledky_df[vysledky_df['Fyzicky_Sklad'] == 'Boršice']
     elif vybrana_lokace == 'Valmez': 
@@ -617,11 +626,20 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             
         st.write("---")
 
+# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE EXCELU ---
+posledni_aktualizace = "Neznámý čas"
+if os.path.exists(EXCEL_FILE):
+    mtime = os.path.getmtime(EXCEL_FILE)
+    posledni_aktualizace = datetime.fromtimestamp(mtime).strftime('%d.%m.%Y %H:%M')
+
 # --- HLAVNÍ APLIKACE ---
-st.markdown("""
+st.markdown(f"""
 <div class="main-header">
     <h1>📦 Skladový asistent</h1>
-    <span class="badge-terminal">Mobilní terminál</span>
+    <div class="header-info">
+        <span class="badge-terminal">Mobilní terminál</span>
+        <span class="update-time">Aktualizováno: {posledni_aktualizace}</span>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
