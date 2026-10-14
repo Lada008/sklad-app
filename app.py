@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import csv
 import time
 import json
@@ -13,6 +14,10 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+# Pomocná funkce pro získání aktuálního času v ČR
+def get_czech_now_str():
+    return datetime.now(ZoneInfo("Europe/Prague")).strftime('%d.%m.%Y %H:%M')
 
 # --- SJEDNOCENÝ MODERNÍ SVĚTLÝ DESIGN (ODOLNÝ PROTI DARK MODU) ---
 st.markdown("""
@@ -523,7 +528,7 @@ def load_stock_data(filepath):
 
 def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, poznamka):
     zaznam = [
-        datetime.now().strftime('%d.%m.%Y %H:%M'),
+        get_czech_now_str(),
         kod_zbozi, popis, lokace, sarze,
         system_stav, real_stav, real_stav - system_stav, poznamka
     ]
@@ -627,17 +632,16 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
             
         st.write("---")
 
-# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE (POUZE Z NAŠÍ PAMĚTI NEBO SOUBORU) ---
+# --- ZJIŠTĚNÍ ČASU POSLEDNÍ AKTUALIZACE V ČESKÉM ČASOVÉM PÁSMU ---
 if "posledni_nahrani" not in st.session_state:
     if os.path.exists(TIME_FILE):
         try:
             with open(TIME_FILE, "r", encoding="utf-8") as f_time:
                 st.session_state.posledni_nahrani = f_time.read().strip()
         except Exception:
-            st.session_state.posledni_nahrani = datetime.now().strftime('%d.%m.%Y %H:%M')
+            st.session_state.posledni_nahrani = get_czech_now_str()
     else:
-        # Pokud soubor s časem neexistuje, uložíme rovnou aktuální čas jako výchozí
-        aktualni_cas_init = datetime.now().strftime('%d.%m.%Y %H:%M')
+        aktualni_cas_init = get_czech_now_str()
         st.session_state.posledni_nahrani = aktualni_cas_init
         with open(TIME_FILE, "w", encoding="utf-8") as f_time:
             f_time.write(aktualni_cas_init)
@@ -814,7 +818,7 @@ with tab_inventura:
                             else:
                                 akt_rozdil = round(fyzicky_stav - system_stav, 3)
                                 zaznam = [
-                                    datetime.now().strftime('%d.%m.%Y %H:%M'),
+                                    get_czech_now_str(),
                                     lokace_nazev, kod, nazev, sarze,
                                     system_stav, fyzicky_stav, akt_rozdil
                                 ]
@@ -868,7 +872,7 @@ with tab_inventura:
                 st.download_button(
                     label="📥 Stáhnout výsledky inventury (CSV)",
                     data=f_down.read(),
-                    file_name=f"inventura_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    file_name=f"inventura_{datetime.now(ZoneInfo('Europe/Prague')).strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
@@ -937,15 +941,15 @@ with tab_admin:
             with open(EXCEL_FILE, "wb") as f:
                 f.write(novy_soubor.getbuffer())
             
-            # Okamžitý aktuální přesný čas nahrání
-            aktualni_cas_str = datetime.now().strftime('%d.%m.%Y %H:%M')
+            # Záznam přesného aktuálního času v ČR
+            aktualni_cas_str = get_czech_now_str()
             st.session_state.posledni_nahrani = aktualni_cas_str
             
             with open(TIME_FILE, "w", encoding="utf-8") as f_time:
                 f_time.write(aktualni_cas_str)
 
             st.cache_data.clear()
-            st.success("✅ Data skladu byla úspěšně aktualizována!")
+            st.success(f"✅ Data skladu byla aktualizována v {aktualni_cas_str}!")
             time.sleep(0.8)
             st.rerun()
 
