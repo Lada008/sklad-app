@@ -4,3 +4,17 @@ primaryColor="#16a34a"
 backgroundColor="#f1f5f9"
 secondaryBackgroundColor="#ffffff"
 textColor="#0f172a"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 250
+enableWebsocketCompression = true
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = false
