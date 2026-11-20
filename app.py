@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import os
 import re
@@ -19,7 +20,7 @@ st.set_page_config(
 def get_czech_now_str():
     return datetime.now(ZoneInfo("Europe/Prague")).strftime('%d.%m.%Y %H:%M')
 
-# --- SJEDNOCENÝ MODERNÍ SVĚTLÝ DESIGN (ODOLNÝ PROTI DARK MODU) ---
+# --- SJEDNOCENÝ MODERNÍ SVĚTLÝ DESIGN (ODOLNÝ PROTI DARK MODU A OPTIMALIZOVANÝ PRO MOBIL) ---
 st.markdown("""
 <style>
     /* Celkové pozadí a text */
@@ -77,12 +78,19 @@ st.markdown("""
         padding: 14px !important;
     }
 
+    /* Tlačítka pro mobilní terminál */
+    button[kind="primary"], button[kind="secondary"] {
+        min-height: 42px !important;
+        border-radius: 9px !important;
+        font-weight: 700 !important;
+    }
+
     /* Hlavička */
     .main-header {
         background: linear-gradient(135deg, #14532d 0%, #16a34a 100%);
         padding: 16px 20px;
         border-radius: 14px;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
         box-shadow: 0 6px 16px rgba(22, 101, 52, 0.18);
         display: flex;
         align-items: center;
@@ -126,7 +134,7 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] {
         background-color: transparent !important;
         border: none !important;
-        padding: 8px 14px !important;
+        padding: 8px 12px !important;
         border-radius: 8px !important;
         flex: 1;
         justify-content: center;
@@ -134,7 +142,7 @@ st.markdown("""
     .stTabs [data-baseweb="tab"] p {
         color: #475569 !important;
         font-weight: 600 !important;
-        font-size: 0.9rem !important;
+        font-size: 0.88rem !important;
     }
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
@@ -150,13 +158,13 @@ st.markdown("""
     .product-card {
         background: #ffffff !important;
         border-radius: 14px;
-        padding: 18px;
+        padding: 16px;
         margin-bottom: 10px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         border: 1px solid #cbd5e1;
     }
     .product-title {
-        font-size: 1.25rem;
+        font-size: 1.22rem;
         font-weight: 800;
         color: #0f172a !important;
         margin-bottom: 8px;
@@ -226,6 +234,17 @@ st.markdown("""
         align-items: center;
         gap: 12px;
     }
+    .fefo-banner-expired {
+        background: #fef2f2 !important;
+        border: 1px solid #ef4444 !important;
+        border-left: 5px solid #dc2626 !important;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 10px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
     .fefo-icon {
         font-size: 1.3rem;
     }
@@ -234,8 +253,21 @@ st.markdown("""
         color: #78350f !important;
         line-height: 1.45;
     }
+    .fefo-text-expired {
+        font-size: 0.88rem !important;
+        color: #991b1b !important;
+        line-height: 1.45;
+    }
     .fefo-badge {
         background: #d97706 !important;
+        color: #ffffff !important;
+        padding: 2px 7px;
+        border-radius: 5px;
+        font-weight: 800;
+        font-family: monospace;
+    }
+    .fefo-badge-expired {
+        background: #dc2626 !important;
         color: #ffffff !important;
         padding: 2px 7px;
         border-radius: 5px;
@@ -288,6 +320,137 @@ LOC_MAP = {
     '151SL': '🏬 Slavičín',
     'NACESTE': '🚚 Na cestě'
 }
+
+# --- REŽIM SKLADU: SCREEN WAKE LOCK & KEEP-ALIVE SESSION WIDGET ---
+def render_keep_awake_widget():
+    widget_html = """
+    <div id="wake-box" style="
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 12px;
+        padding: 8px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    ">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <span id="wake-icon" style="font-size:1.3rem;">🔆</span>
+            <div>
+                <div style="font-weight:700; font-size:0.85rem; color:#0f172a; line-height:1.2;">
+                    Režim skladu (Displej nezhasne)
+                </div>
+                <div id="wake-sub" style="font-size:0.72rem; font-weight:600; color:#16a34a; line-height:1.2;">
+                    Aktivní — obrazovka a spojení zůstanou bdělé
+                </div>
+            </div>
+        </div>
+        <button id="wake-toggle-btn" onclick="toggleWakeState()" style="
+            background: #16a34a;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-weight: 700;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        ">ZAPNUTO</button>
+    </div>
+
+    <!-- Tichý video prvek pro hardware wake lock na iOS/Safari a starších zařízeních -->
+    <video id="wakeDummyVid" playsinline webkit-playsinline loop muted style="width:1px;height:1px;position:absolute;opacity:0.001;pointer-events:none;">
+        <source src="data:video/mp4;base64,AAAAHGZ0eXBtcDQyAAAAAG1wNDJpc29tYXZjMQAAADFtb292AAAAbG12aGQAAAAA5x/a1OccftcAAAPoAAAAAAABAAABAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAGXRyYWsAAABZdGtoZAAAAAPnH9rU5xx+1wAAAAEAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAA" type="video/mp4">
+    </video>
+
+    <script>
+        let wakeLock = null;
+        let isWakeActive = true;
+
+        async function acquireLock() {
+            let targetNav = navigator;
+            try {
+                if (window.parent && window.parent.navigator && window.parent.navigator.wakeLock) {
+                    targetNav = window.parent.navigator;
+                }
+            } catch(e) {}
+
+            try {
+                if (targetNav && targetNav.wakeLock) {
+                    wakeLock = await targetNav.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        if (isWakeActive) setTimeout(acquireLock, 1200);
+                    });
+                }
+            } catch(err) {
+                console.log("WakeLock API fallback to media keep-awake.");
+            }
+
+            try {
+                const v = document.getElementById('wakeDummyVid');
+                if (v && v.paused) {
+                    v.play().catch(e => {});
+                }
+            } catch(e) {}
+        }
+
+        function releaseLock() {
+            if (wakeLock) {
+                wakeLock.release().catch(e => {});
+                wakeLock = null;
+            }
+            try {
+                const v = document.getElementById('wakeDummyVid');
+                if (v && !v.paused) v.pause();
+            } catch(e) {}
+        }
+
+        function toggleWakeState() {
+            isWakeActive = !isWakeActive;
+            const btn = document.getElementById('wake-toggle-btn');
+            const sub = document.getElementById('wake-sub');
+            const icon = document.getElementById('wake-icon');
+
+            if (isWakeActive) {
+                acquireLock();
+                btn.textContent = 'ZAPNUTO';
+                btn.style.background = '#16a34a';
+                sub.textContent = 'Aktivní — obrazovka a spojení zůstanou bdělé';
+                sub.style.color = '#16a34a';
+                icon.textContent = '🔆';
+            } else {
+                releaseLock();
+                btn.textContent = 'VYPNUTO';
+                btn.style.background = '#64748b';
+                sub.textContent = 'Vypnuto — displej se může běžně uspat';
+                sub.style.color = '#64748b';
+                icon.textContent = '🌙';
+            }
+        }
+
+        // Okamžitá aktivace při načtení
+        acquireLock();
+
+        // Automatické znovu-uzamčení při návratu do záložky po odemčení mobilu
+        document.addEventListener('visibilitychange', () => {
+            if (isWakeActive && document.visibilityState === 'visible') {
+                acquireLock();
+            }
+        });
+        window.addEventListener('focus', () => {
+            if (isWakeActive) acquireLock();
+        });
+
+        // Pravidelný keep-alive ping pro udržení WebSocket spojení i při nečinnosti
+        setInterval(() => {
+            try {
+                fetch('/_stcore/health', { cache: 'no-store' }).catch(() => {});
+            } catch(e) {}
+        }, 25000);
+    </script>
+    """
+    components.html(widget_html, height=64)
 
 def get_custom_packs():
     if "custom_packs" not in st.session_state:
@@ -485,7 +648,7 @@ def format_expirace_semafor(dt_obj):
     elif dny <= 365: return f"🟡 Do roka ({datum_str})"
     else: return f"🟢 {datum_str}"
 
-@st.cache_data
+@st.cache_data(persist="disk", show_spinner=False)
 def load_stock_data(filepath):
     cols = [
         'Číslo zboží', 'Popis', 'Kód kategorie zboží', 'Kód lokace', 'Kód Střediska', 
@@ -494,17 +657,18 @@ def load_stock_data(filepath):
     ]
     try:
         df = pd.read_excel(filepath, usecols=cols)
-    except ValueError:
-        st.error("❌ Nahraný Excel nemá správnou strukturu (chybí potřebné sloupce).")
+    except Exception as e:
+        st.error(f"❌ Chyba při načítání souboru skladu: {e}")
         return pd.DataFrame()
 
     prijmy = df[df['Množství'] > 0].copy()
-    prijmy['Číslo šarže'] = prijmy['Číslo šarže'].fillna('-')
+    prijmy['Číslo šarže'] = prijmy['Číslo šarže'].fillna('-').astype(str)
     posledni_prijem = prijmy.groupby(['Číslo zboží', 'Kód lokace', 'Číslo šarže'])['Zúčtovací datum'].max().reset_index()
     posledni_prijem.rename(columns={'Zúčtovací datum': 'Datum posledního příjmu'}, inplace=True)
 
     df_active = df[df['Zůstatek (množství)'] > 0].copy()
-    df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-')
+    df_active['Číslo šarže'] = df_active['Číslo šarže'].fillna('-').astype(str)
+    df_active['Číslo zboží'] = df_active['Číslo zboží'].astype(str)
 
     df_active['Fyzicky_Sklad'] = df_active.apply(lambda row: get_fyzicky_sklad(row['Kód lokace'], row['Prodejce Kód']), axis=1)
     df_active['Lokace_Nazev'] = df_active.apply(lambda row: format_location_name(row['Kód lokace'], row['Prodejce Kód']), axis=1)
@@ -524,7 +688,22 @@ def load_stock_data(filepath):
     grouped['Poslední příjem'] = grouped['Datum_Prijmu_Obj'].dt.strftime('%d.%m.%Y').fillna('-')
     grouped['Kategorie_Nazev'] = grouped['Kód kategorie zboží'].apply(format_category_name)
     
+    # Rychlý vyhledávací index pro okamžité multi-token hledání
+    grouped['Search_Index'] = (
+        grouped['Popis'].fillna('').astype(str).str.lower() + " " +
+        grouped['Číslo zboží'].fillna('').astype(str).str.lower() + " " +
+        grouped['Číslo šarže'].fillna('').astype(str).str.lower() + " " +
+        grouped['Lokace_Nazev'].fillna('').astype(str).str.lower() + " " +
+        grouped['Fyzicky_Sklad'].fillna('').astype(str).str.lower()
+    )
+    
     return grouped
+
+@st.cache_data
+def get_cached_product_list(df):
+    if df.empty or 'Popis' not in df.columns:
+        return []
+    return sorted(df['Popis'].dropna().unique().tolist())
 
 def uloz_nesrovnalost(kod_zbozi, popis, lokace, sarze, system_stav, real_stav, poznamka):
     zaznam = [
@@ -551,8 +730,19 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         st.warning(f"Pro výraz **'{dotaz_popis}'** nebyl na vybraném skladu ({vybrana_lokace}) nalezen žádný zůstatek.")
         return
 
-    produkty = vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False)
+    produkty = list(vysledky_df.groupby(['Číslo zboží', 'Popis', 'Kategorie_Nazev'], sort=False))
+    pocet_produktu = len(produkty)
+    
+    # Ochrana výkonu mobilu: limit na 35 produktů pro plynulý chod
+    MAX_CARDS = 35
+    if pocet_produktu > MAX_CARDS:
+        st.info(f"🔎 Nalezeno **{pocet_produktu}** produktů. Zobrazuji prvních {MAX_CARDS} (pro zúžení upřesněte hledání).")
+        produkty = produkty[:MAX_CARDS]
+    else:
+        st.caption(f"Nalezeno produktů: **{pocet_produktu}**")
+
     customs = get_custom_packs()
+    dnes = pd.Timestamp.now().normalize()
     
     for (kod_zbozi, nazev_zbozi, kategorie), skupina in produkty:
         celkem_ks = skupina['Zůstatek (množství)'].sum()
@@ -593,8 +783,8 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
                 
                 if st.form_submit_button("💾 Uložit jako výchozí pro tento produkt", use_container_width=True):
                     save_custom_pack(kod_zbozi, nova_velikost, novy_obal)
-                    st.success("Nastavení uloženo!")
-                    time.sleep(0.4)
+                    st.toast("✅ Nastavení balení uloženo!", icon="💾")
+                    time.sleep(0.2)
                     st.rerun()
 
         if palety_text:
@@ -604,17 +794,33 @@ def zobraz_vysledky(vysledky_df, dotaz_popis, vybrana_lokace):
         if not valid_exp.empty:
             fefo_top = valid_exp.iloc[0]
             loc_disp = fefo_top['Lokace_Nazev']
-            st.markdown(f"""
-            <div class="fefo-banner">
-                <div class="fefo-icon">👉</div>
-                <div class="fefo-text">
-                    <strong>FEFO VÝDEJ (nejstarší expirace):</strong><br>
-                    Šarže <span class="fefo-badge">{fefo_top['Číslo šarže']}</span> 
-                    na lokaci <strong>{loc_disp}</strong> 
-                    (Exp: <strong>{fefo_top['Datum_Exp_Obj'].strftime('%d.%m.%Y')}</strong>)
+            exp_date = fefo_top['Datum_Exp_Obj']
+            days_left = (exp_date - dnes).days
+            
+            if days_left < 0:
+                st.markdown(f"""
+                <div class="fefo-banner-expired">
+                    <div class="fefo-icon">⚠️</div>
+                    <div class="fefo-text-expired">
+                        <strong>POZOR — EXPIROVÁNO!</strong><br>
+                        Šarže <span class="fefo-badge-expired">{fefo_top['Číslo šarže']}</span> 
+                        na lokaci <strong>{loc_disp}</strong> 
+                        (Expirovalo: <strong>{exp_date.strftime('%d.%m.%Y')}</strong> — před {abs(days_left)} dny). Zkontrolujte před výdejem!
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="fefo-banner">
+                    <div class="fefo-icon">👉</div>
+                    <div class="fefo-text">
+                        <strong>FEFO VÝDEJ (vydat nejdříve):</strong><br>
+                        Šarže <span class="fefo-badge">{fefo_top['Číslo šarže']}</span> 
+                        na lokaci <strong>{loc_disp}</strong> 
+                        (Exp: <strong>{exp_date.strftime('%d.%m.%Y')}</strong> — zbývá {days_left} dní)
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
         st.markdown("📍 **Rozpis po lokacích a šaržích:**")
         prehled = skupina.sort_values(by='Zůstatek (množství)', ascending=False)
@@ -659,6 +865,9 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# Režim skladu: Wake Lock + WebSocket keep-alive
+render_keep_awake_widget()
+
 if not os.path.exists(EXCEL_FILE):
     st.error(f"Soubor '{EXCEL_FILE}' nebyl nalezen. Nahraj ho prosím v záložce '🔄 Data'.")
     stock_df = pd.DataFrame()
@@ -675,34 +884,37 @@ tab_rucni, tab_inventura, tab_nesrovnalosti, tab_admin = st.tabs([
     "🔍 Hledat", "📋 Inventura", "⚠️ Hlášení", "🔄 Data"
 ])
 
-# 1. HLEDÁNÍ
+# 1. HLEDÁNÍ (MULTI-TOKEN, NAŠEPTÁVAČ, RYCHLÉ VYHLEDÁVÁNÍ)
 with tab_rucni:
     if not stock_df.empty:
-        seznam_zbozi = sorted(stock_df['Popis'].dropna().unique().tolist())
+        seznam_zbozi = get_cached_product_list(stock_df)
 
-        vybrany_produkt = st.selectbox(
-            "⚡ Našeptávač zboží:",
-            options=seznam_zbozi,
-            index=None,
-            placeholder="Napiš název (např. Folpan, Bizon)..."
-        )
-
-        volny_text = st.text_input("Nebo hledej podle šarže / kódu / části názvu:", placeholder="např. 7426507...")
+        col_search1, col_search2 = st.columns([1, 1])
+        with col_search1:
+            vybrany_produkt = st.selectbox(
+                "⚡ Našeptávač zboží:",
+                options=seznam_zbozi,
+                index=None,
+                placeholder="Napiš název (např. Folpan, Bizon)..."
+            )
+        with col_search2:
+            volny_text = st.text_input(
+                "Nebo hledej (šarže / kód / více slov):", 
+                placeholder="např. 7426507 nebo Folpan Valmez..."
+            )
 
         if vybrany_produkt:
             vysledky = stock_df[stock_df['Popis'] == vybrany_produkt]
             zobraz_vysledky(vysledky, vybrany_produkt, vybrana_lokace)
         elif volny_text.strip():
-            text_clean = volny_text.strip()
-            mask_text = (
-                stock_df['Popis'].str.contains(text_clean, case=False, na=False, regex=False) |
-                stock_df['Číslo zboží'].astype(str).str.contains(text_clean, case=False, na=False, regex=False) |
-                stock_df['Číslo šarže'].astype(str).str.contains(text_clean, case=False, na=False, regex=False)
-            )
-            vysledky = stock_df[mask_text]
-            zobraz_vysledky(vysledky, text_clean, vybrana_lokace)
+            tokens = [t.lower() for t in volny_text.strip().split() if t]
+            mask = pd.Series(True, index=stock_df.index)
+            for token in tokens:
+                mask &= stock_df['Search_Index'].str.contains(token, regex=False)
+            vysledky = stock_df[mask]
+            zobraz_vysledky(vysledky, volny_text.strip(), vybrana_lokace)
         else:
-            st.info("👆 Vyber přípravek z našeptávače nebo napiš šarži / kód.")
+            st.info("👆 Vyber přípravek z našeptávače nebo napiš hledaný text (i více slov, např. 'Folpan Valmez').")
 
 # 2. MOBILNÍ INVENTURA
 with tab_inventura:
@@ -752,10 +964,16 @@ with tab_inventura:
 
         celkem_polozek = len(inv_items)
         spocitano = len([x for _, x in inv_items.iterrows() if f"{x['Číslo zboží']}|{x['Číslo šarže']}|{lokace_zaznamu}" in hotove_zaznamy])
+        pocet_zbyva = celkem_polozek - spocitano
         
         if celkem_polozek > 0:
+            procento = int((spocitano / celkem_polozek) * 100)
             st.progress(spocitano / celkem_polozek)
-            st.markdown(f"**Průběh:** Spočítáno **{spocitano}** z **{celkem_polozek}** položek ({int(spocitano/celkem_polozek*100)} %).")
+            
+            c_s1, c_s2, c_s3 = st.columns(3)
+            with c_s1: st.metric("Celkem", f"{celkem_polozek}")
+            with c_s2: st.metric("Hotovo", f"{spocitano} ({procento} %)")
+            with c_s3: st.metric("Zbývá", f"{pocet_zbyva}")
             
             dostupne_nazvy = sorted(inv_items['Popis'].unique().tolist())
             hledany_nazev = st.selectbox(
@@ -763,6 +981,13 @@ with tab_inventura:
                 options=dostupne_nazvy,
                 index=None,
                 placeholder="Vyber produkt pro okamžité zadání..."
+            )
+
+            filtr_pohled = st.radio(
+                "Filtr zobrazení:",
+                [f"🟠 Zbývá spočítat ({pocet_zbyva})", f"🟢 Již hotovo ({spocitano})", "📋 Všechny položky"],
+                horizontal=True,
+                label_visibility="collapsed"
             )
             
             st.write("---")
@@ -785,34 +1010,45 @@ with tab_inventura:
                     skupina_zbyva.append(data_karty)
 
             def vykresli_kartu(idx, row, je_hotovo, rozdil, klic_zaznamu, lokace_nazev, rozbaleno=False):
-                kod = row['Číslo zboží']
+                kod = str(row['Číslo zboží'])
                 nazev = row['Popis']
-                sarze = row['Číslo šarže']
-                system_stav = row['Zůstatek (množství)']
+                sarze = str(row['Číslo šarže'])
+                system_stav = float(row['Zůstatek (množství)'])
                 
-                ikona = "🟢" if (je_hotovo and rozdil == 0) else ("🔴" if je_hotovo else "🟠")
+                ikona = "🟢" if (je_hotovo and rozdil == 0) else ("🔴" if (je_hotovo and rozdil != 0) else "🟠")
                 
                 with st.expander(f"{ikona} {nazev} (Šarže: {sarze})", expanded=rozbaleno):
+                    krok = ziskej_krok_baleni(kod, nazev)
+                    bal_info = prepocet_na_baleni(kod, nazev, system_stav)
+
                     if je_hotovo:
-                        st.markdown(f"**Kód:** `{kod}` | **V systému:** {system_stav:g} j. *({prepocet_na_baleni(kod, nazev, system_stav)})*")
+                        st.markdown(f"**Kód:** `{kod}` | **V systému:** {system_stav:g} j. *({bal_info})*")
                         barva_textu = "#16a34a" if rozdil == 0 else "#dc2626"
                         st.markdown(f"Zadáno: **{system_stav + rozdil:g} j.** (<span style='color:{barva_textu}; font-weight:bold'>Rozdíl: {rozdil:g} j.</span>)", unsafe_allow_html=True)
                     else:
                         st.markdown(f"**Kód:** `{kod}` | **Očekáváno:** ❓ *(slepá inventura)*")
                     
-                    krok = ziskej_krok_baleni(kod, nazev)
-                    
                     with st.form(key=f"inv_form_{idx}"):
+                        default_val = float(system_stav + rozdil) if je_hotovo else None
                         fyzicky_stav = st.number_input(
                             f"Fyzicky napočítáno (krok po {krok:g}):", 
                             min_value=0.0, 
-                            value=float(system_stav + rozdil) if je_hotovo else None,
+                            value=default_val,
                             step=float(krok),
                             placeholder="Zadej počet v l/kg/ks...",
                             key=f"inv_num_{idx}"
                         )
                         
-                        if st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary"):
+                        col_sub1, col_sub2 = st.columns([1, 1])
+                        with col_sub1:
+                            submit_standard = st.form_submit_button("💾 Uložit stav", use_container_width=True, type="primary")
+                        with col_sub2:
+                            submit_match = st.form_submit_button(f"✅ Sedí ({system_stav:g} j.)", use_container_width=True)
+                        
+                        if submit_match:
+                            fyzicky_stav = system_stav
+                            
+                        if submit_standard or submit_match:
                             if fyzicky_stav is None:
                                 st.error("Zadej prosím počet (i kdyby to byla 0)!")
                             else:
@@ -831,11 +1067,11 @@ with tab_inventura:
                                     writer.writerow(zaznam)
                                 
                                 if akt_rozdil == 0:
-                                    st.success(f"Všechno sedí! 👍 (Systém: {system_stav:g} j.)")
+                                    st.toast(f"✅ {nazev}: Všechno sedí ({system_stav:g} j.)!", icon="👍")
                                 else:
-                                    st.error(f"⚠ Uloženo s rozdílem {akt_rozdil:g} j. (Systém: {system_stav:g} j.)")
+                                    st.toast(f"⚠️ {nazev}: Uloženo s rozdílem {akt_rozdil:g} j.", icon="⚠️")
                                     
-                                time.sleep(0.8)
+                                time.sleep(0.15)
                                 st.rerun()
 
             if skupina_vyhledano:
@@ -844,15 +1080,19 @@ with tab_inventura:
                     vykresli_kartu(*karta, rozbaleno=True)
                 st.write("---")
 
-            if skupina_zbyva:
-                st.markdown(f"#### 🟠 Zbývá spočítat ({len(skupina_zbyva)})")
-                for karta in skupina_zbyva:
-                    vykresli_kartu(*karta, rozbaleno=False)
+            if filtr_pohled.startswith("🟠") or filtr_pohled.startswith("📋"):
+                if skupina_zbyva:
+                    st.markdown(f"#### 🟠 Zbývá spočítat ({len(skupina_zbyva)})")
+                    for karta in skupina_zbyva:
+                        vykresli_kartu(*karta, rozbaleno=False)
+                elif filtr_pohled.startswith("🟠"):
+                    st.success("🎉 Skvělá práce! Všechny položky na tomto úseku jsou spočítané.")
 
-            if skupina_hotovo:
-                st.markdown(f"#### 🟢 Již spočítáno ({len(skupina_hotovo)})")
-                for karta in skupina_hotovo:
-                    vykresli_kartu(*karta, rozbaleno=False)
+            if filtr_pohled.startswith("🟢") or filtr_pohled.startswith("📋"):
+                if skupina_hotovo:
+                    st.markdown(f"#### 🟢 Již spočítáno ({len(skupina_hotovo)})")
+                    for karta in skupina_hotovo:
+                        vykresli_kartu(*karta, rozbaleno=False)
                     
         else:
             st.info("Na této lokaci není podle systému žádné zboží.")
@@ -884,7 +1124,8 @@ with tab_nesrovnalosti:
 
     with st.form("form_nesrovnalost", clear_on_submit=True):
         if not stock_df.empty:
-            moznosti_zbozi = ["--- Vyber ze seznamu nebo napiš níže ---"] + sorted(stock_df['Popis'].dropna().unique().tolist())
+            seznam_nesr = get_cached_product_list(stock_df)
+            moznosti_zbozi = ["--- Vyber ze seznamu nebo napiš níže ---"] + seznam_nesr
             vyber_zbozi = st.selectbox("Vyber zboží:", moznosti_zbozi)
         else:
             vyber_zbozi = "---"
@@ -908,7 +1149,9 @@ with tab_nesrovnalosti:
                     "", final_polozka, lokace_zadat, sarze_zadat,
                     stav_system, stav_realita, poznamka
                 )
-                st.success("✅ Nesrovnalost byla uložena.")
+                st.toast("✅ Hlášení bylo úspěšně uloženo!", icon="✅")
+                time.sleep(0.2)
+                st.rerun()
             else:
                 st.error("Vyber nebo vyplň název zboží.")
 
@@ -935,6 +1178,11 @@ with tab_admin:
     st.subheader("🔄 Aktualizace skladových dat")
     st.caption("Nahraj čerstvý export z Business Central (.xlsx).")
     
+    if os.path.exists(EXCEL_FILE):
+        velikost_mb = os.path.getsize(EXCEL_FILE) / (1024 * 1024)
+        pocet_radku = len(stock_df) if not stock_df.empty else 0
+        st.info(f"📊 Aktuální stav: **{EXCEL_FILE}** ({velikost_mb:.2f} MB, {pocet_radku} aktivních šarží v paměti).")
+    
     novy_soubor = st.file_uploader("Vyber soubor (.xlsx)", type=["xlsx"])
     if novy_soubor is not None:
         if st.button("🚀 Přepsat data skladu", type="primary", use_container_width=True):
@@ -949,8 +1197,8 @@ with tab_admin:
                 f_time.write(aktualni_cas_str)
 
             st.cache_data.clear()
-            st.success(f"✅ Data skladu byla aktualizována v {aktualni_cas_str}!")
-            time.sleep(0.8)
+            st.toast(f"✅ Data skladu byla aktualizována v {aktualni_cas_str}!", icon="🚀")
+            time.sleep(0.3)
             st.rerun()
 
     st.write("---")
@@ -974,13 +1222,13 @@ with tab_admin:
         if st.button("🗑️ Vynulovat inventuru", disabled=not potvrzeni_smazani, use_container_width=True):
             if os.path.exists(INV_FILE):
                 os.remove(INV_FILE)
-            st.success("Inventura byla vynulována.")
-            time.sleep(0.8)
+            st.toast("Inventura byla vynulována.", icon="🗑️")
+            time.sleep(0.3)
             st.rerun()
     with col_del2:
         if st.button("🗑️ Smazat hlášení", disabled=not potvrzeni_smazani, use_container_width=True):
             if os.path.exists(NESROVNALOSTI_FILE):
                 os.remove(NESROVNALOSTI_FILE)
-            st.success("Hlášení byla smazána.")
-            time.sleep(0.8)
+            st.toast("Hlášení byla smazána.", icon="🗑️")
+            time.sleep(0.3)
             st.rerun()
