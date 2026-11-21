@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#14532d" />
+  <meta name="description" content="Skladový asistent — mobilní terminál pro rychlé vyhledávání zboží, hlídání FEFO expirací, inventury a hlášení nesrovnalostí ve skladech Boršice, Valmez a komisích." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Sklad" />
+
+  <title>Skladový asistent — Mobilní terminál</title>
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-header-inner">
+      <div class="brand-block">
+        <img src="assets/icon.svg" alt="" class="brand-logo" width="38" height="38" />
+        <div class="brand-titles">
+          <h1>Skladový asistent</h1>
+          <div class="brand-meta">
+            <span id="net-status-pill" class="net-pill">
+              <span class="net-dot" aria-hidden="true"></span>
+              <span id="net-status-text">Připraveno</span>
+            </span>
+            <span aria-hidden="true">·</span>
+            <span id="header-updated-at">Načítám data…</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" id="wake-toggle-btn" class="wake-toggle is-active" aria-pressed="true" title="Režim skladu — displej nezhasne">
+          <span class="wake-led" aria-hidden="true"></span>
+          <span class="wake-label-long">Displej nezhasne</span>
+          <span class="wake-label-short">Bdělý</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="warehouse-strip-wrap" class="warehouse-strip-wrap">
+      <div id="warehouse-strip" class="warehouse-strip" role="group" aria-label="Filtr skladu"></div>
+    </div>
+  </header>
+
+  <nav id="app-nav" class="app-nav" aria-label="Hlavní navigace">
+    <div class="app-nav-inner" role="tablist">
+      <button type="button" class="nav-btn is-active" data-tab="search" role="tab" aria-selected="true" aria-controls="tab-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
+        <span>Hledat</span>
+      </button>
+
+      <button type="button" class="nav-btn" data-tab="expirations" role="tab" aria-selected="false" aria-controls="tab-expirations">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <polyline points="12 7 12 12 15.5 14"></polyline>
+        </svg>
+        <span>Expirace</span>
+        <span id="badge-expirations" class="nav-badge" hidden>0</span>
+      </button>
+
+      <button type="button" class="nav-btn" data-tab="inventory" role="tab" aria-selected="false" aria-controls="tab-inventory">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path>
+          <rect x="9" y="3" width="6" height="4" rx="1"></rect>
+          <path d="m9 14 2 2 4-4"></path>
+        </svg>
+        <span>Inventura</span>
+        <span id="badge-inventory" class="nav-badge" hidden>0</span>
+      </button>
+
+      <button type="button" class="nav-btn" data-tab="reports" role="tab" aria-selected="false" aria-controls="tab-reports">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span>Hlášení</span>
+        <span id="badge-reports" class="nav-badge is-amber" hidden>0</span>
+      </button>
+
+      <button type="button" class="nav-btn" data-tab="data" role="tab" aria-selected="false" aria-controls="tab-data">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+          <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"></path>
+          <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"></path>
+        </svg>
+        <span>Data</span>
+      </button>
+    </div>
+  </nav>
+
+  <main class="app-main">
+    <section id="tab-search" class="tab-panel" role="tabpanel" aria-label="Vyhledávání"></section>
+    <section id="tab-expirations" class="tab-panel" role="tabpanel" aria-label="Expirace a FEFO" hidden></section>
+    <section id="tab-inventory" class="tab-panel" role="tabpanel" aria-label="Mobilní inventura" hidden></section>
+    <section id="tab-reports" class="tab-panel" role="tabpanel" aria-label="Hlášení nesrovnalostí" hidden></section>
+    <section id="tab-data" class="tab-panel" role="tabpanel" aria-label="Správa dat" hidden></section>
+  </main>
+
+  <!-- Modal pro kamerový skener čárových kódů -->
+  <div id="scanner-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scanner-title" hidden>
+    <div class="modal-card">
+      <div class="section-header" style="margin-bottom: 4px;">
+        <h3 id="scanner-title" class="section-title">📷 Skener kódů</h3>
+        <button type="button" id="scanner-close-btn" class="btn btn-sm">Zavřít</button>
+      </div>
+      <div class="scanner-video-wrap">
+        <video id="scanner-video" playsinline muted></video>
+        <div class="scanner-reticle" aria-hidden="true"></div>
+      </div>
+      <p id="scanner-status" class="section-sub" style="text-align: center;"></p>
+    </div>
+  </div>
+
+  <!-- Notifikace (Toasty) -->
+  <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

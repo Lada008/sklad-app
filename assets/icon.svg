@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Skladový asistent">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14532d"/>
+      <stop offset="100%" stop-color="#15803d"/>
+    </linearGradient>
+    <linearGradient id="boxTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#dcfce7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Isometric warehouse box -->
+  <g transform="translate(256 260)">
+    <!-- Top face -->
+    <polygon points="0,-132 128,-66 0,0 -128,-66" fill="url(#boxTop)"/>
+    <!-- Left face -->
+    <polygon points="-128,-66 0,0 0,136 -128,70" fill="#bbf7d0"/>
+    <!-- Right face -->
+    <polygon points="128,-66 0,0 0,136 128,70" fill="#86efac"/>
+    <!-- Center tape seam -->
+    <polygon points="-38,-112 38,-73 10,-59 -66,-98" fill="#166534" opacity="0.22"/>
+    <!-- Vertical edge accent -->
+    <line x1="0" y1="0" x2="0" y2="136" stroke="#14532d" stroke-width="6" stroke-linecap="round" opacity="0.25"/>
+    <!-- Crisp check badge -->
+    <circle cx="96" cy="84" r="54" fill="#0f172a"/>
+    <circle cx="96" cy="84" r="46" fill="#22c55e"/>
+    <path d="M74 85 L89 100 L120 68" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

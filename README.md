@@ -1,65 +1,59 @@
-# 📦 Skladový asistent (Mobilní terminál)
+# 📦 Skladový asistent (Mobilní PWA terminál)
 
-Optimalizovaná aplikace pro skladníky a inventury v prostředí skladů Boršice, Valašské Meziříčí a komisních skladů.
+Rychlá, plně klientská JavaScriptová webová aplikace (PWA) pro skladníky, FEFO hlídání expirací a mobilní inventury ve skladech **Boršice**, **Valmez** a komisních skladech.
 
----
-
-## 🚀 Provedené úpravy a vyladění
-
-### 1. Ochrana proti uspávání aplikace (Anti-Sleep & Keep-Alive)
-- **Klient / Mobilní zařízení (Screen Wake Lock):**
-  - Implementován widget **Režim skladu (Displej nezhasne)** přímo pod hlavičkou.
-  - Využívá moderní **Screen Wake Lock API** (`navigator.wakeLock`) i fallback pro iOS Safari / starší Androidy (tichý hardware video stream).
-  - Obrazovka mobilu/tabletu ve skladu **nezhasíná**, takže skladník nemusí telefon neustále odemykat.
-  - Při návratu do aplikace (po přepnutí do jiné aplikace a zpět) se zámek obrazovky automaticky znovu aktivuje.
-  - Každých 25 sekund odesílá tichý heartbeat ping na server, který brání rozpadu WebSocket relace (žádné zasekávání na *"Connecting..."*).
-- **Server / Streamlit Community Cloud (GitHub Actions Keep-Alive):**
-  - Vylepšen workflow v `.github/workflows/keep-alive.yml`.
-  - Pinguje aplikaci každých 12 minut plným `GET` požadavkem s realistickými hlavičkami prohlížeče na kořenovou URL i na `/_stcore/health`.
-  - Zahrnuta ochrana proti automatickému uspání GitHub Actions po 60 dnech neaktivity repozitáře.
-
-> 💡 **Tip pro 100% jistotu probuzení Streamlit Cloud:**  
-> Pokud chcete absolutní nezávislost na GitHubu, nastavte si zdarma monitor na [cron-job.org](https://cron-job.org/) nebo [UptimeRobot](https://uptimerobot.com/):  
-> - **URL:** `https://sklad-asistent.streamlit.app/`  
-> - **Interval:** každých 10 minut  
-> - **Metoda:** HTTP GET  
+🌐 **Živá aplikace (GitHub Pages):** `https://lada008.github.io/sklad-app/`
 
 ---
 
-### 2. Vyladění výkonu a vyhledávání
-- **Rychlé multi-token vyhledávání:**
-  - Vytvořen předpočítaný index spojující název, kód zboží, šarži i lokaci.
-  - Vyhledávat lze více slovy najednou (např. `Folpan Valmez`, `Bizon 151BO`, `kanystr 5l`).
-- **Disková a paměťová mezipaměť (Disk Caching):**
-  - Data z 4.6MB Excelu se ukládají pomocí `@st.cache_data(persist="disk")`. Po probuzení serveru nebo restartu je načtení bleskové (desetiny sekundy místo několika sekund).
-  - Našeptávač zboží je cachovaný zvlášť, což eliminuje zasekávání při psaní na mobilu.
-- **Ochrana paměti mobilních telefonů:**
-  - Omezeno vykreslování na maximálně 35 karet najednou s informací pro uživatele, aby slabší telefony nezamrzaly při zobrazení stovek produktů.
+## ⚡ Proč se aplikace už nikdy neuspává
+
+Původní verze běžela na Streamlit Community Cloud, který se po nečinnosti uspával a při výpadku signálu ztrácel WebSocket spojení. Nová verze je přepsaná do **čistého JavaScriptu (ES moduly + PWA)** bez závislosti na serveru:
+
+- **Žádné uspávání serveru:** Statická aplikace hostovaná na GitHub Pages CDN reaguje okamžitě 24/7.
+- **100% offline provoz (Service Worker):** Po prvním otevření funguje vyhledávání, FEFO, inventura i hlášení nesrovnalostí i v hale bez signálu.
+- **Instalace na plochu mobilu (PWA):** Na Androidu i iOS lze přidat na domovskou obrazovku a spouštět na celou obrazovku jako nativní terminál.
+- **Režim skladu (Displej nezhasne):** Nativní **Screen Wake Lock API** přímo v hlavním okně (už není omezený sandboxem iframu) + záložní video režim pro starší iOS a automatické obnovení po návratu do aplikace.
+- **Lokální ukládání bez ztráty dat:** Inventura, hlášení, vlastní balení i lokálně nahraný Excel se ukládají přímo v zařízení (`localStorage` + `IndexedDB`).
 
 ---
 
-### 3. Vyladění mobilní inventury
-- **Rychlé filtry:**
-  - `🟠 Zbývá spočítat` — skladník vidí pouze položky, které ještě nezpracoval.
-  - `🟢 Již hotovo` — přehled hotových položek.
-  - `📋 Všechny položky`.
-- **Tlačítko „✅ Sedí“:**
-  - Pokud se fyzický stav shoduje se stavem v systému, stačí jedno kliknutí a stav je okamžitě uložen.
-- **Okamžitá odezva (Toasty):**
-  - Nahrazeno umělé čekání `time.sleep(0.8)` za moderní notifikaci `st.toast`, takže zadávání inventury je plynulé a svižné.
+## ✨ Hlavní funkce a vylepšení
+
+### 🔍 Okamžité vyhledávání (bez diakritiky)
+- Bleskové filtrování při psaní po více slovech najednou (např. `folpan valmez`, `bizon 151bo`, `moridlo`), včetně živého našeptávače a historie posledních hledání.
+- Rychlý horní přepínač skladu (**Vše / Boršice / Valmez / Komise**) s počtem produktů a čipy kategorií.
+- Skener čárových/QR kódů zadní kamerou (na podporovaných mobilních prohlížečích).
+- Přepočet množství na kanystry, krabice, pytle i celé palety + možnost upravit si vlastní balení u každého produktu.
+- Přímé akce u každé šarže: **⚠️ Hlásit** (předvyplní formulář nesrovnalosti) a **📋 Inventura**.
+
+### ⏱️ Hlídač expirací & FEFO (Novinka)
+- Okamžitý přehled šarží podle pásem: **Expirováno**, **Do 90 dní**, **3–6 měsíců** a **6–12 měsíců**.
+- Živý odpočet zbývajících dní a export seznamu do českého CSV.
+
+### 📋 Vylepšená mobilní inventura
+- Přepínač **🙈 Slepá inventura / Kontrolní režim** (v kontrolním režimu aktivní jedno-klikové tlačítko **✅ Sedí**).
+- **Rychlá kalkulačka balení** (zadej počet kanystrů/pytlů × velikost balení) a tlačítka `−1× / +1× / +4× / +10×` pro snadné zadávání na mobilu.
+- Filtry **Zbývá / Hotovo / Rozdíly / Vše**, možnost zrušit chybný záznam a export do CSV (UTF-8 s BOM a středníkem pro bezproblémové otevření v českém Excelu).
+
+### ⚠️ Hlášení nesrovnalostí
+- Předvyplnění jedním klepnutím z detailu šarže nebo výběrem ze skladu + rychlé štítky důvodů (*Rozbitý obal*, *Záměna šarže*, *Chybí fyzicky*…).
+
+### ⚙️ Aktualizace dat z Business Central (`sklad.xlsx`)
+Data lze aktualizovat dvěma způsoby:
+1. **Přímo v prohlížeči (záložka Data):** Vyber nebo přetáhni čerstvý `sklad.xlsx` — vestavěný streaming parser ho rozbalí a uloží do `IndexedDB` za ~1–2 sekundy bez potřeby serveru.
+2. **Pro celý tým přes GitHub:** Nahraj nový `sklad.xlsx` do repozitáře (větev `main`). GitHub Action automaticky přegeneruje kompaktní `data/stock.json` (~150 KB místo 4,6 MB) a nasadí novou verzi na GitHub Pages.
 
 ---
 
-### 4. Vylepšené FEFO a expirace
-- Pokud je šarže již po expiraci, aplikace zobrazí zřetelné červené varování **⚠️ POZOR — EXPIROVÁNO (před X dny)**.
-- Při platné expiraci ukazuje přesný počet zbývajících dní a doporučenou šarži k výdeji (FEFO).
-
----
-
-## 💻 Spuštění lokálně
+## 💻 Lokální spuštění a přegenerování dat
 
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+# Přegenerování data/stock.json ze sklad.xlsx (pouze standardní Python 3)
+python3 scripts/build-stock-json.py
+
+# Lokální webový server pro testování
+python3 -m http.server 8080
 ```
-Aplikace běží na `http://localhost:8501`.
+
+Aplikace pak běží na `http://localhost:8080`.

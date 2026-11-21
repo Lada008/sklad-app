@@ -1,0 +1,32 @@
+{
+  "name": "Skladový asistent — Mobilní terminál",
+  "short_name": "Sklad",
+  "description": "Rychlý skladový terminál pro vyhledávání zboží, FEFO expirace, inventury a hlášení nesrovnalostí. Funguje i offline a nikdy se neuspává.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f3f5f2",
+  "theme_color": "#14532d",
+  "lang": "cs",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
