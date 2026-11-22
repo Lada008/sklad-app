@@ -1,5 +1,7 @@
 /**
  * Skladový asistent — hlavní řídicí modul aplikace.
+ * Automaticky načítá data skladu i denně synchronizovaný registr ÚKZÚZ (POR)
+ * a páruje je podle očištěného názvu nebo registračního čísla.
  */
 
 import {
@@ -11,12 +13,18 @@ import {
 import {
   loadCustomPacks,
   loadInventoryRecords,
+  loadLocalPorData,
   loadLocalStockData,
   loadPrefs,
   loadReports,
   saveCustomPacks,
   savePrefs,
 } from './storage.js';
+import {
+  buildPorIndex,
+  buildPorSearchText,
+  matchProductToPor,
+} from './ukzuz.js';
 import { WakeLockController } from './wake-lock.js';
 import { createSearchTab } from './ui-search.js';
 import { createExpirationsTab } from './ui-expirations.js';
@@ -24,10 +32,15 @@ import { createInventoryTab } from './ui-inventory.js';
 import { createReportsTab } from './ui-reports.js';
 import { createDataTab } from './ui-data.js';
 
+const POR_JSON_URL = './public/data/por_aktualni.json';
+
 const state = {
   meta: null,
   rawItems: [],
   items: [],
+  porMeta: null,
+  porItems: [],
+  porIndex: null,
   customPacks: loadCustomPacks(),
   inventory: loadInventoryRecords(),
   reports: loadReports(),
@@ -134,20 +147,29 @@ document.getElementById('warehouse-strip')?.addEventListener('click', (e) => {
   tabs.expirations.render();
 });
 
-// --- Hlavička: čas aktualizace ---
+// --- Hlavička: čas aktualizace skladu + synchronizace ÚKZÚZ ---
 function renderHeaderMeta() {
-  const el = document.getElementById('header-updated-at');
-  if (!el) return;
-  if (state.meta?.updatedAt) {
-    el.textContent = `Data: ${state.meta.updatedAt}`;
-  } else {
-    el.textContent = 'Načítám data…';
+  const stockEl = document.getElementById('header-updated-at');
+  if (stockEl) {
+    stockEl.textContent = state.meta?.updatedAt ? `Sklad: ${state.meta.updatedAt}` : 'Načítám data…';
+  }
+
+  const ukzuzEl = document.getElementById('header-ukzuz-at');
+  const ukzuzSep = document.getElementById('header-ukzuz-sep');
+  if (ukzuzEl && ukzuzSep) {
+    if (state.porMeta?.updatedAt) {
+      ukzuzEl.textContent = `ÚKZÚZ: ${state.porMeta.updatedAt}`;
+      ukzuzEl.hidden = false;
+      ukzuzSep.hidden = false;
+    } else {
+      ukzuzEl.hidden = true;
+      ukzuzSep.hidden = true;
+    }
   }
 }
 
 // --- Odznaky na záložkách ---
 function updateBadges() {
-  // Expirace: počet expirovaných + do 90 dní na vybraném skladu
   const expBadge = document.getElementById('badge-expirations');
   if (expBadge) {
     const scoped = filterByWarehouse(state.items, state.prefs.warehouseFilter);
@@ -169,7 +191,6 @@ function updateBadges() {
     expBadge.classList.toggle('is-amber', expiredCount === 0);
   }
 
-  // Hlášení
   const repBadge = document.getElementById('badge-reports');
   if (repBadge) {
     const n = state.reports.length;
@@ -178,7 +199,6 @@ function updateBadges() {
     repBadge.classList.add('is-amber');
   }
 
-  // Inventura (rozdíly)
   const invBadge = document.getElementById('badge-inventory');
   if (invBadge) {
     const diffs = Object.values(state.inventory).filter((r) => r.diff !== 0).length;
@@ -198,7 +218,6 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-panel').forEach((panel) => {
     panel.hidden = panel.id !== `tab-${tabId}`;
   });
-  // Skryj horní pruh skladu u záložek, kde se sklad volí zvlášť (Inventura, Data)
   const whWrap = document.getElementById('warehouse-strip-wrap');
   if (whWrap) {
     whWrap.hidden = tabId === 'inventory' || tabId === 'data' || tabId === 'reports';
@@ -214,6 +233,20 @@ document.getElementById('app-nav')?.addEventListener('click', (e) => {
   if (!btn) return;
   switchTab(btn.dataset.tab);
 });
+
+// --- Spárování skladu s aktuálním registrem ÚKZÚZ ---
+function buildPorMatcher() {
+  if (!state.porIndex) return null;
+  const idx = state.porIndex;
+  return {
+    match: (code, name) => matchProductToPor(code, name, idx),
+    searchText: (por) => buildPorSearchText(por),
+  };
+}
+
+function rebuildEnrichedStock() {
+  state.items = enrichItems(state.rawItems, buildPorMatcher());
+}
 
 // --- Sdílený kontext pro moduly ---
 function setPrefs(partial) {
@@ -235,7 +268,17 @@ function deleteCustomPack(code) {
 function applyStockDataset(dataset) {
   state.meta = dataset.meta || {};
   state.rawItems = Array.isArray(dataset.items) ? dataset.items : [];
-  state.items = enrichItems(state.rawItems);
+  rebuildEnrichedStock();
+  refreshAllViews();
+}
+
+function applyPorDataset(dataset) {
+  state.porMeta = dataset?.meta || null;
+  state.porItems = Array.isArray(dataset?.items) ? dataset.items : [];
+  state.porIndex = state.porItems.length ? buildPorIndex(state.porItems) : null;
+  if (state.rawItems.length) {
+    rebuildEnrichedStock();
+  }
   refreshAllViews();
 }
 
@@ -261,12 +304,27 @@ async function fetchDefaultStock() {
   return await res.json();
 }
 
+async function fetchDefaultPor() {
+  const res = await fetch(POR_JSON_URL, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
 async function reloadDefaultStock() {
   try {
     const data = await fetchDefaultStock();
     applyStockDataset(data);
   } catch (err) {
     toast(`Nepodařilo se načíst výchozí data skladu: ${err.message}`, 'danger');
+  }
+}
+
+async function reloadDefaultPor() {
+  try {
+    const data = await fetchDefaultPor();
+    applyPorDataset(data);
+  } catch (err) {
+    toast(`Nepodařilo se načíst registr ÚKZÚZ: ${err.message}`, 'danger');
   }
 }
 
@@ -277,7 +335,9 @@ const ctx = {
   setCustomPack,
   deleteCustomPack,
   applyStockDataset,
+  applyPorDataset,
   reloadDefaultStock,
+  reloadDefaultPor,
   reloadLocalState,
   refreshAllViews,
   updateBadges,
@@ -308,34 +368,46 @@ async function bootstrap() {
   window.addEventListener('online', updateNetworkIndicator);
   window.addEventListener('offline', updateNetworkIndicator);
 
-  // Registrace Service Workeru (offline provoz + okamžitý start)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
-  // Zobraz krátký stav načítání před načtením JSON
   const resultsEl = document.getElementById('search-results-area');
   if (resultsEl) {
     resultsEl.innerHTML = `
       <div class="loading-card">
         <div class="spinner"></div>
-        <div>Načítám skladová data…</div>
+        <div>Načítám data skladu a registr ÚKZÚZ…</div>
       </div>
     `;
   }
 
-  try {
-    const localData = await loadLocalStockData();
-    if (localData && Array.isArray(localData.items)) {
-      applyStockDataset(localData);
-    } else {
-      const defaultData = await fetchDefaultStock();
-      applyStockDataset(defaultData);
-    }
-  } catch (err) {
+  // Paralelní načtení skladu i registru ÚKZÚZ (POR)
+  const [stockResult, porResult] = await Promise.allSettled([
+    (async () => {
+      const localStock = await loadLocalStockData();
+      if (localStock && Array.isArray(localStock.items)) return localStock;
+      return await fetchDefaultStock();
+    })(),
+    (async () => {
+      const localPor = await loadLocalPorData();
+      if (localPor && Array.isArray(localPor.items)) return localPor;
+      return await fetchDefaultPor();
+    })(),
+  ]);
+
+  if (porResult.status === 'fulfilled' && porResult.value) {
+    state.porMeta = porResult.value.meta || null;
+    state.porItems = Array.isArray(porResult.value.items) ? porResult.value.items : [];
+    state.porIndex = state.porItems.length ? buildPorIndex(state.porItems) : null;
+  }
+
+  if (stockResult.status === 'fulfilled' && stockResult.value) {
+    applyStockDataset(stockResult.value);
+  } else {
     state.meta = { updatedAt: 'Chyba načtení' };
     refreshAllViews();
-    toast(`Nepodařilo se načíst sklad: ${err.message}`, 'danger');
+    toast(`Nepodařilo se načíst sklad: ${stockResult.reason?.message || 'chyba'}`, 'danger');
   }
 
   switchTab('search');

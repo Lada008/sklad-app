@@ -41,7 +41,7 @@ export function createSearchTab(ctx) {
           type="search"
           id="search-input"
           class="search-input"
-          placeholder="Hledej přípravek, kód, šarži nebo sklad (např. Folpan Valmez)…"
+          placeholder="Hledej přípravek, účinnou látku, šarži, reg. č. nebo sklad…"
           autocomplete="off"
           autocorrect="off"
           spellcheck="false"
@@ -480,6 +480,7 @@ export function createSearchTab(ctx) {
     const defaultSize = ziskejKrokBaleni(prod.code, prod.name, customPacks);
     const hasCustom = Boolean(customPacks[prod.code]);
     const defaultObal = customPacks[prod.code]?.obal || 'automaticky';
+    const porHtml = renderPorPanel(prod.por);
 
     return `
       <article class="product-card">
@@ -491,6 +492,8 @@ export function createSearchTab(ctx) {
                 <span>${escapeHtml(prod.code)}</span>
                 <span aria-hidden="true">⧉</span>
               </button>
+              ${prod.por?.reg && prod.por.reg !== '-' ? `<span class="code-chip" title="Registrační číslo ÚKZÚZ">ÚKZÚZ: ${escapeHtml(prod.por.reg)}</span>` : ''}
+              ${prod.por?.eco ? '<span class="exp-pill is-ok">🌱 EKO</span>' : ''}
               ${hasCustom ? '<span class="exp-pill is-ok">Vlastní balení</span>' : ''}
             </div>
           </div>
@@ -510,6 +513,7 @@ export function createSearchTab(ctx) {
 
         ${palletHtml}
         ${fefoHtml}
+        ${porHtml}
 
         <div class="batch-section-label">Rozpis po lokacích a šaržích (${prod.batches.length})</div>
         <div class="batch-list">${batchesHtml}</div>
@@ -534,6 +538,92 @@ export function createSearchTab(ctx) {
           </form>
         </details>
       </article>
+    `;
+  }
+
+  function renderPorPanel(por) {
+    if (!por) return '';
+
+    const isStockUse = por.status === 'Do spotřebování zásob';
+    const statusClass = isStockUse ? 'is-warning' : 'is-ok';
+
+    const validStr = por.validTo ? formatIsoDateCz(por.validTo) : null;
+    const marketStr = por.marketTo ? formatIsoDateCz(por.marketTo) : null;
+    const useStr = por.useTo ? formatIsoDateCz(por.useTo) : null;
+
+    const datesParts = [];
+    if (validStr) datesParts.push(`Platnost do <strong>${validStr}</strong>`);
+    if (isStockUse && marketStr) datesParts.push(`Doprodej do <strong>${marketStr}</strong>`);
+    if (useStr && (isStockUse || useStr !== validStr)) {
+      datesParts.push(`Spotřeba zásob max. do <strong>${useStr}</strong>`);
+    }
+
+    const phoRestricted = Boolean(por.pho?.restricted);
+    const phoClass = phoRestricted ? 'is-pho-restricted' : 'is-ok';
+    const phoBadge = phoRestricted
+      ? `💧 PHO: ${escapeHtml(por.pho.code || 'Omezení')}`
+      : '💧 PHO: Bez omezení';
+
+    const beeLevel = por.bees?.level || 'ok';
+    const beeClass =
+      beeLevel === 'danger'
+        ? 'is-expired'
+        : beeLevel === 'warn'
+          ? 'is-warning'
+          : beeLevel === 'info'
+            ? 'is-pho-restricted'
+            : 'is-ok';
+    const beeBadge =
+      beeLevel === 'danger'
+        ? '🐝 ZNV — Zvlášť nebezpečný pro včely'
+        : beeLevel === 'warn'
+          ? '🐝 NV — Nebezpečný pro včely'
+          : beeLevel === 'info'
+            ? '🐝 DO — Opylovači'
+            : '🐝 Včely: Bez označení';
+
+    const ulHtml = por.ul?.length
+      ? `<div class="por-row">
+           <span class="por-label">Účinné látky:</span>
+           <span class="por-val">${por.ul
+             .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+             .join(' · ')}</span>
+         </div>`
+      : '';
+
+    const groupsHtml = por.groups?.length
+      ? `<div class="por-row">
+           <span class="por-label">Chemická skupina:</span>
+           <span class="por-val">${escapeHtml(por.groups.join(', '))}</span>
+         </div>`
+      : '';
+
+    const showDetails = phoRestricted || beeLevel !== 'ok';
+    const detailsHtml = showDetails
+      ? `<details class="por-legal-details">
+           <summary>Zobrazit přesné znění omezení PHO a rizika pro včely</summary>
+           <div class="por-legal-body">
+             <div><strong>Ochranná pásma vod (PHO):</strong> ${escapeHtml(por.pho?.text || 'Bez omezení')}</div>
+             <div><strong>Riziko pro včely:</strong> ${escapeHtml(por.bees?.text || 'Bez označení')}</div>
+           </div>
+         </details>`
+      : '';
+
+    return `
+      <div class="por-panel ${isStockUse ? 'is-stock-use' : ''}">
+        <div class="por-header">
+          <span class="por-title">🏛️ Registr ÚKZÚZ · ${escapeHtml(por.name)}</span>
+          <span class="exp-pill ${statusClass}">${escapeHtml(por.status)}</span>
+        </div>
+        ${datesParts.length ? `<div class="por-dates">${datesParts.join(' &nbsp;|&nbsp; ')}</div>` : ''}
+        <div class="por-pills">
+          <span class="exp-pill ${phoClass}">${phoBadge}</span>
+          <span class="exp-pill ${beeClass}">${beeBadge}</span>
+        </div>
+        ${ulHtml}
+        ${groupsHtml}
+        ${detailsHtml}
+      </div>
     `;
   }
 

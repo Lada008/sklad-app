@@ -1,0 +1,55 @@
+name: Sync ÚKZÚZ (eAGRI) POR
+
+on:
+  schedule:
+    # Každý den ve 03:05 SEČ (02:05 UTC — krátce po vygenerování denního exportu eAGRI ve 03:00)
+    - cron: '5 2 * * *'
+  workflow_dispatch: # Ruční spuštění tlačítkem v GitHub Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-ukzuz
+  cancel-in-progress: false
+
+jobs:
+  sync-ukzuz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Volitelná instalace firebase-admin (pokud je nastaven secret)
+        env:
+          HAS_FIREBASE: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON != '' }}
+        run: |
+          if [ "$HAS_FIREBASE" = "true" ]; then
+            pip install --quiet firebase-admin
+          else
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON není nastaven — Firebase upload se přeskočí."
+          fi
+
+      - name: Stáhnout a zpracovat aktuální registr ÚKZÚZ (eAGRI)
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          python3 scripts/update_ukzuz.py --output public/data/por_aktualni.json
+
+      - name: Commit a push při změně dat
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/por_aktualni.json
+          if git diff --staged --quiet; then
+            echo "Žádné změny v datech ÚKZÚZ — commit není potřeba."
+          else
+            DATUM=$(TZ="Europe/Prague" date +"%d.%m.%Y %H:%M")
+            git commit -m "chore(ukzuz): automatická denní synchronizace POR (${DATUM})"
+            git push
+          fi

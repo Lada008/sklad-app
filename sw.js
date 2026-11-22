@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'sklad-app-v1';
+const CACHE_VERSION = 'sklad-app-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const APP_SHELL = [
   './js/app.js',
   './js/domain.js',
   './js/storage.js',
+  './js/ukzuz.js',
   './js/wake-lock.js',
   './js/xlsx-parser.js',
   './js/ui-search.js',
@@ -18,6 +19,7 @@ const APP_SHELL = [
   './js/ui-reports.js',
   './js/ui-data.js',
   './data/stock.json',
+  './public/data/por_aktualni.json',
 ];
 
 self.addEventListener('install', (event) => {
@@ -44,8 +46,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Pro stock.json preferuj síť (čerstvá data po pushi), při offline vrať cache
-  if (url.pathname.endsWith('/data/stock.json') || url.pathname.endsWith('stock.json')) {
+  // Pro denně aktualizovaná data (stock.json a por_aktualni.json) preferuj síť, při offline vrať cache
+  if (
+    url.pathname.endsWith('stock.json') ||
+    url.pathname.endsWith('por_aktualni.json')
+  ) {
     event.respondWith(
       fetch(req, { cache: 'no-cache' })
         .then((res) => {

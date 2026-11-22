@@ -470,20 +470,41 @@ export function evaluateExpiration(expIso, todayMs = getTodayMidnightMs()) {
 }
 
 /**
- * Připraví obohacené položky s předpočítaným vyhledávacím indexem bez diakritiky.
+ * Připraví obohacené položky s předpočítaným vyhledávacím indexem bez diakritiky
+ * a volitelným spárováním s registrem ÚKZÚZ (POR).
  */
-export function enrichItems(rawItems) {
+export function enrichItems(rawItems, porMatcher = null) {
+  const porCache = new Map();
+
   return rawItems.map((item, idx) => {
     const catInfo = parseCategory(item.cat);
     const locDisplay = formatLocationDisplay(item.loc, item.ln);
-    const searchIndex = normalizeText(
-      `${item.n} ${item.c} ${item.lot} ${item.ln} ${item.wh} ${item.loc} ${catInfo.label}`
-    );
+
+    let por = null;
+    let porSearch = '';
+    if (porMatcher) {
+      const cacheKey = `${item.c}||${item.n}`;
+      if (porCache.has(cacheKey)) {
+        const cached = porCache.get(cacheKey);
+        por = cached.por;
+        porSearch = cached.porSearch;
+      } else {
+        por = porMatcher.match(item.c, item.n);
+        porSearch = por ? porMatcher.searchText(por) : '';
+        porCache.set(cacheKey, { por, porSearch });
+      }
+    }
+
+    const searchIndex =
+      normalizeText(`${item.n} ${item.c} ${item.lot} ${item.ln} ${item.wh} ${item.loc} ${catInfo.label}`) +
+      (porSearch ? ` ${porSearch}` : '');
+
     return {
       ...item,
       _idx: idx,
       _cat: catInfo,
       _locDisplay: locDisplay,
+      _por: por,
       _search: searchIndex,
       _nameNorm: normalizeText(item.n),
     };
@@ -514,6 +535,7 @@ export function groupByProduct(items) {
         code: item.c,
         name: item.n,
         cat: item._cat,
+        por: item._por || null,
         totalQty: 0,
         batches: [],
       };

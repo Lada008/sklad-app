@@ -39,6 +39,12 @@ Původní verze běžela na Streamlit Community Cloud, který se po nečinnosti 
 ### ⚠️ Hlášení nesrovnalostí
 - Předvyplnění jedním klepnutím z detailu šarže nebo výběrem ze skladu + rychlé štítky důvodů (*Rozbitý obal*, *Záměna šarže*, *Chybí fyzicky*…).
 
+### 🌿 Automatická denní synchronizace ÚKZÚZ (eAGRI POR)
+- **Denní plánovač (`.github/workflows/sync-ukzuz.yml`):** Každý den ve **03:05 SEČ** (a kdykoliv ručně přes `workflow_dispatch`) spustí `scripts/update_ukzuz.py`, stáhne aktuální otevřený export registru POR z portálu eAGRI (`https://mze.gov.cz/public/app/eagriapp/por/DataKeStazeni.aspx`), očistí data na **Platné rozhodnutí** a **Do spotřebování zásob** a uloží výstup do `public/data/por_aktualni.json`.
+- **Volitelné nahrání do Firebase Firestore:** Pokud je v GitHub Secrets nastaven `FIREBASE_SERVICE_ACCOUNT_JSON`, skript automaticky uloží data i do Firestore kolekce `ukzuz_registr`.
+- **Automatické párování se skladem z Business Central:** Aplikace při startu i při nahrání nového `sklad.xlsx` automaticky očistí názvy položek od velikostí balení (`5L`, `20 L`, `10 KG`, `bal.`…) a spáruje je s registrem ÚKZÚZ (zobrazí registrační číslo, platnost / termín spotřeby zásob, účinné látky s koncentrací, chemickou skupinu, PHO i riziko pro včely — a umožní podle nich vyhledávat).
+- **Záložní ruční import:** V záložce **Data** zůstává tlačítko **„Nahrát soubor POR ručně“** (podporuje `.xlsx`, `.xml`, `.csv` i `.json`), kdyby ministerstvo v budoucnu změnilo URL exportu.
+
 ### ⚙️ Aktualizace dat z Business Central (`sklad.xlsx`)
 Data lze aktualizovat dvěma způsoby:
 1. **Přímo v prohlížeči (záložka Data):** Vyber nebo přetáhni čerstvý `sklad.xlsx` — vestavěný streaming parser ho rozbalí a uloží do `IndexedDB` za ~1–2 sekundy bez potřeby serveru.
@@ -51,6 +57,9 @@ Data lze aktualizovat dvěma způsoby:
 ```bash
 # Přegenerování data/stock.json ze sklad.xlsx (pouze standardní Python 3)
 python3 scripts/build-stock-json.py
+
+# Ruční stažení a aktualizace registru ÚKZÚZ → public/data/por_aktualni.json
+python3 scripts/update_ukzuz.py
 
 # Lokální webový server pro testování
 python3 -m http.server 8080

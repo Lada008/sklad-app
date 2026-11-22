@@ -71,7 +71,7 @@ function parseNumber(rawVal) {
 /**
  * Přečte ZIP centrální adresář z ArrayBufferu.
  */
-function readZipEntries(buffer) {
+export function readZipEntries(buffer) {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
   const len = bytes.length;
@@ -119,7 +119,7 @@ function readZipEntries(buffer) {
   return entries;
 }
 
-function getEntryCompressedSlice(buffer, entry) {
+export function getEntryCompressedSlice(buffer, entry) {
   const view = new DataView(buffer);
   const off = entry.localHeaderOffset;
   if (view.getUint32(off, true) !== 0x04034b50) {
@@ -131,7 +131,7 @@ function getEntryCompressedSlice(buffer, entry) {
   return new Uint8Array(buffer, dataStart, entry.compSize);
 }
 
-async function readEntryAsText(buffer, entry) {
+export async function readEntryAsText(buffer, entry) {
   const slice = getEntryCompressedSlice(buffer, entry);
   if (entry.method === 0) {
     return new TextDecoder('utf-8').decode(slice);

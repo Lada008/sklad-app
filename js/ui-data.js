@@ -1,5 +1,6 @@
 /**
  * Záložka 5: Aktualizace skladových dat (.xlsx přímo v prohlížeči),
+ * správa registru ÚKZÚZ (automatická denní synchronizace + záložní ruční nahrání POR),
  * správa vlastních balení, záloha/obnova, PWA instalace a bezpečný reset.
  */
 
@@ -11,13 +12,16 @@ import {
 } from './domain.js';
 import {
   clearInventoryRecords,
+  clearLocalPorData,
   clearLocalStockData,
   clearReports,
   exportFullBackup,
   importFullBackup,
   saveCustomPacks,
+  saveLocalPorData,
   saveLocalStockData,
 } from './storage.js';
+import { parseManualPorFile } from './ukzuz.js';
 import { parseBusinessCentralXlsx } from './xlsx-parser.js';
 
 export function createDataTab(ctx) {
@@ -40,16 +44,16 @@ export function createDataTab(ctx) {
   panel.innerHTML = `
     <div class="section-header">
       <div>
-        <h2 class="section-title">Data skladu &amp; správa</h2>
-        <p class="section-sub">Nahraj čerstvý export z Business Central (.xlsx) — zpracuje se přímo v prohlížeči.</p>
+        <h2 class="section-title">Data skladu, ÚKZÚZ &amp; správa</h2>
+        <p class="section-sub">Nahraj čerstvý export z Business Central (.xlsx) nebo zkontroluj denní synchronizaci ÚKZÚZ.</p>
       </div>
     </div>
 
     <div class="card" id="data-status-card"></div>
 
     <div class="card" style="margin-top: 12px;">
-      <h3 class="section-title" style="margin-bottom: 4px;">🔄 Nahrát nový Excel (sklad.xlsx)</h3>
-      <p class="section-sub" style="margin-bottom: 12px;">Zpracování probíhá lokálně bez serveru (i offline) a zůstane uloženo v tomto zařízení.</p>
+      <h3 class="section-title" style="margin-bottom: 4px;">🔄 Nahrát nový Excel skladu (Business Central)</h3>
+      <p class="section-sub" style="margin-bottom: 12px;">Položky se automaticky očistí od velikostí balení (5L, 20 L, 10 KG, bal.) a spárují s aktuálním registrem ÚKZÚZ.</p>
 
       <div id="xlsx-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Vybrat soubor sklad.xlsx">
         <div class="dropzone-icon">📊</div>
@@ -70,6 +74,8 @@ export function createDataTab(ctx) {
 
       <div id="xlsx-extra-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;"></div>
     </div>
+
+    <div class="card" style="margin-top: 12px;" id="ukzuz-status-card"></div>
 
     <div class="card" style="margin-top: 12px;" id="custom-packs-card"></div>
 
@@ -109,6 +115,7 @@ export function createDataTab(ctx) {
   const progressPct = document.getElementById('xlsx-progress-pct');
   const progressBar = document.getElementById('xlsx-progress-bar');
   const extraActionsEl = document.getElementById('xlsx-extra-actions');
+  const ukzuzCard = document.getElementById('ukzuz-status-card');
   const customPacksCard = document.getElementById('custom-packs-card');
   const pwaCard = document.getElementById('pwa-install-card');
   const backupExportBtn = document.getElementById('backup-export-btn');
@@ -118,7 +125,7 @@ export function createDataTab(ctx) {
   const resetInvBtn = document.getElementById('reset-inv-btn');
   const resetRepBtn = document.getElementById('reset-rep-btn');
 
-  // --- Upload Excelu ---
+  // --- Upload Excelu skladu z Business Central ---
   dropzone.addEventListener('click', () => fileInput.click());
   dropzone.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -166,8 +173,10 @@ export function createDataTab(ctx) {
 
       await saveLocalStockData(parsed);
       ctx.applyStockDataset(parsed);
+
+      const { matchedProducts, totalProducts } = getMatchedProductStats();
       ctx.toast(
-        `✅ Načteno ${parsed.meta.batchCount} šarží (${parsed.meta.productCount} produktů)`,
+        `✅ Načteno ${parsed.meta.batchCount} šarží · spárováno s ÚKZÚZ: ${matchedProducts}/${totalProducts}`,
         'success'
       );
       setTimeout(() => {
@@ -197,6 +206,54 @@ export function createDataTab(ctx) {
         'application/json;charset=utf-8;'
       );
       ctx.toast('Soubor stock.json byl stažen', 'success');
+    }
+  });
+
+  // --- Registr ÚKZÚZ: záložní ruční nahrání POR souboru ---
+  ukzuzCard.addEventListener('click', async (e) => {
+    if (e.target.closest('#por-manual-upload-btn')) {
+      document.getElementById('por-manual-file-input')?.click();
+      return;
+    }
+    if (e.target.closest('#por-revert-auto-btn')) {
+      await clearLocalPorData();
+      await ctx.reloadDefaultPor();
+      ctx.toast('Obnoven automaticky synchronizovaný registr ÚKZÚZ', 'success');
+      return;
+    }
+    if (e.target.closest('#por-refresh-btn')) {
+      await ctx.reloadDefaultPor();
+      ctx.toast('Registr ÚKZÚZ znovu načten ze serveru', 'success');
+    }
+  });
+
+  ukzuzCard.addEventListener('change', async (e) => {
+    if (e.target.id !== 'por-manual-file-input') return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const box = document.getElementById('por-upload-progress');
+    const txt = document.getElementById('por-progress-text');
+    const pctEl = document.getElementById('por-progress-pct');
+    const bar = document.getElementById('por-progress-bar');
+
+    if (box) box.hidden = false;
+    try {
+      const parsed = await parseManualPorFile(file, (pct, msg) => {
+        if (bar) bar.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct} %`;
+        if (txt) txt.textContent = msg;
+      });
+      await saveLocalPorData(parsed);
+      ctx.applyPorDataset(parsed);
+      ctx.toast(
+        `🌿 Nahrán registr POR (${parsed.meta.totalProducts} přípravků)`,
+        'success'
+      );
+    } catch (err) {
+      if (box) box.hidden = true;
+      ctx.toast(`❌ Chyba souboru POR: ${err.message || err}`, 'danger');
     }
   });
 
@@ -304,6 +361,18 @@ export function createDataTab(ctx) {
     }
   });
 
+  function getMatchedProductStats() {
+    const seen = new Map();
+    for (const item of ctx.state.items) {
+      if (!seen.has(item.c)) seen.set(item.c, Boolean(item._por));
+    }
+    let matchedProducts = 0;
+    for (const isMatched of seen.values()) {
+      if (isMatched) matchedProducts++;
+    }
+    return { matchedProducts, totalProducts: seen.size };
+  }
+
   function renderStatusCard() {
     const m = ctx.state.meta || {};
     const sizeMb = m.sourceSizeBytes ? (m.sourceSizeBytes / (1024 * 1024)).toFixed(2) : null;
@@ -341,6 +410,71 @@ export function createDataTab(ctx) {
     extraActionsEl.innerHTML = `
       ${isLocal ? '<button type="button" id="revert-default-stock-btn" class="btn btn-sm">↩ Obnovit výchozí data z repozitáře</button>' : ''}
       <button type="button" id="export-stock-json-btn" class="btn btn-sm">📥 Stáhnout kompaktní stock.json</button>
+    `;
+  }
+
+  function renderUkzuzCard() {
+    const pm = ctx.state.porMeta;
+    const { matchedProducts, totalProducts } = getMatchedProductStats();
+    const isLocal = Boolean(pm?.isLocalOverride);
+
+    ukzuzCard.innerHTML = `
+      <div class="section-header" style="margin-bottom: 10px;">
+        <div>
+          <h3 class="section-title">🌿 Registr ÚKZÚZ (eAGRI POR)</h3>
+          <p class="section-sub">Automatická denní synchronizace ve 03:05 přes GitHub Actions (Platné + Do spotřebování zásob).</p>
+        </div>
+        <span class="exp-pill ${!pm ? 'is-none' : isLocal ? 'is-warning' : 'is-ok'}">
+          ${!pm ? 'Nenačteno' : isLocal ? 'Ručně nahraný soubor' : 'Denní auto-sync'}
+        </span>
+      </div>
+
+      <div class="inv-kpi-row">
+        <div class="inv-kpi">
+          <div class="inv-kpi-val">${pm?.totalProducts ? pm.totalProducts.toLocaleString('cs-CZ') : '0'}</div>
+          <div class="inv-kpi-lbl">Přípravků POR</div>
+        </div>
+        <div class="inv-kpi">
+          <div class="inv-kpi-val" style="color: var(--brand-700)">${pm?.validCount ? pm.validCount.toLocaleString('cs-CZ') : '0'}</div>
+          <div class="inv-kpi-lbl">Platné</div>
+        </div>
+        <div class="inv-kpi">
+          <div class="inv-kpi-val" style="color: var(--warn)">${pm?.stockConsumptionCount ?? 0}</div>
+          <div class="inv-kpi-lbl">Do spotř. zásob</div>
+        </div>
+        <div class="inv-kpi">
+          <div class="inv-kpi-val" style="color: var(--info)">${matchedProducts} / ${totalProducts}</div>
+          <div class="inv-kpi-lbl">Spárováno BC</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px; font-size: 0.82rem; color: var(--ink-muted);">
+        Poslední synchronizace: <strong style="color: var(--ink);">${escapeHtml(pm?.updatedAt || '—')}</strong>
+        ${pm?.source ? ` · Zdroj: <strong style="color: var(--ink);">${escapeHtml(pm.source)}</strong>` : ''}
+      </div>
+
+      <div id="por-upload-progress" class="upload-progress" hidden>
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;font-weight:700;color:var(--brand-900);">
+          <span id="por-progress-text">Zpracovávám soubor POR…</span>
+          <span id="por-progress-pct" class="mono">0 %</span>
+        </div>
+        <div class="progress-track" style="margin: 8px 0 0;">
+          <div id="por-progress-bar" class="progress-fill" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+        <button type="button" id="por-manual-upload-btn" class="btn btn-sm">📂 Nahrát soubor POR ručně</button>
+        ${
+          isLocal
+            ? '<button type="button" id="por-revert-auto-btn" class="btn btn-sm">↩ Vrátit automatickou synchronizaci</button>'
+            : '<button type="button" id="por-refresh-btn" class="btn btn-sm">🔄 Znovu načíst</button>'
+        }
+      </div>
+      <div style="margin-top: 6px; font-size: 0.76rem; color: var(--ink-muted);">
+        Záložní ruční import přijímá denní export z eAGRI (<strong>.xlsx</strong>, <strong>.xml</strong>, <strong>.csv</strong> nebo <strong>por_aktualni.json</strong>).
+      </div>
+      <input type="file" id="por-manual-file-input" accept=".xlsx,.xml,.csv,.json" hidden />
     `;
   }
 
@@ -405,6 +539,7 @@ export function createDataTab(ctx) {
 
   function render() {
     renderStatusCard();
+    renderUkzuzCard();
     renderCustomPacks();
     renderPwaCard();
   }

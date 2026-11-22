@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  workflow_run:
+    workflows: ["Sync ÚKZÚZ (eAGRI) POR"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -17,6 +20,7 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -41,6 +45,9 @@ jobs:
           mkdir -p _site
           cp index.html manifest.json sw.js _site/
           cp -r assets css js data _site/
+          if [ -d public ]; then
+            cp -r public _site/
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

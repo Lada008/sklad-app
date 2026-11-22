@@ -1145,6 +1145,95 @@ button {
   border: 1px solid var(--border);
 }
 
+.exp-pill.is-pho-restricted {
+  background: var(--info-bg);
+  color: var(--info-dark);
+  border: 1px solid var(--info-border);
+}
+
+/* ÚKZÚZ (POR) Regulatory Panel inside Product Card */
+.por-panel {
+  margin-top: 10px;
+  padding: 11px 13px;
+  background: #f8faf8;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.por-panel.is-stock-use {
+  background: #fffdf5;
+  border-color: var(--warn-border);
+}
+
+.por-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.por-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.por-dates {
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+}
+
+.por-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.por-row {
+  font-size: 0.81rem;
+  line-height: 1.42;
+  color: var(--ink-secondary);
+}
+
+.por-label {
+  font-weight: 700;
+  color: var(--ink-muted);
+  margin-right: 4px;
+}
+
+.por-val {
+  color: var(--ink);
+}
+
+.por-legal-details {
+  margin-top: 2px;
+  border-top: 1px dashed var(--border);
+  padding-top: 7px;
+}
+
+.por-legal-details summary {
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--info);
+  user-select: none;
+}
+
+.por-legal-body {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
 /* Inline Packaging Config Drawer */
 .pack-details {
   margin-top: 12px;
