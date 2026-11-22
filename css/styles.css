@@ -1234,6 +1234,452 @@ button {
   gap: 5px;
 }
 
+/* ==========================================================================
+   Agronomic Filter Panel, Hazard Badges, Dosages & Stock Alternatives
+   ========================================================================== */
+
+.agro-filter-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.agro-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agro-filter-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.agro-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.safety-chips-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.safety-chip.is-pho-safe.is-active {
+  background: var(--info);
+  border-color: var(--info);
+  color: #ffffff;
+}
+
+.safety-chip.is-bee-safe.is-active {
+  background: #0d9488;
+  border-color: #0f766e;
+  color: #ffffff;
+}
+
+.ul-multiselect-wrap {
+  position: relative;
+  flex: 1 1 230px;
+  min-width: 210px;
+}
+
+.ul-input-shell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 3px 10px;
+  min-height: 36px;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+
+.ul-input-shell:focus-within {
+  border-color: var(--brand-600);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.14);
+}
+
+.ul-input-icon {
+  font-size: 0.88rem;
+  flex-shrink: 0;
+}
+
+.ul-filter-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 4px 0;
+}
+
+.ul-filter-input:focus {
+  outline: none;
+}
+
+.ul-filter-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.ul-dropdown {
+  max-height: 250px;
+}
+
+.ac-item.is-selected {
+  background: var(--brand-50);
+}
+
+.selected-ul-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.selected-ul-tags[hidden] {
+  display: none;
+}
+
+.ul-active-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-900);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ul-tag-remove {
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.ul-tag-remove:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* Hazard Badges (OP II. st. & Včely ZNV / NV / SPe8) */
+.hazard-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.hazard-badge.is-pho-warn {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+}
+
+.hazard-badge.is-bee-danger {
+  background: var(--danger-bg);
+  color: var(--danger-dark);
+  border: 1px solid #fca5a5;
+}
+
+.hazard-badge.is-bee-warn {
+  background: var(--warn-bg);
+  color: var(--warn-dark);
+  border: 1px solid var(--warn-border);
+}
+
+/* Clickable Active Ingredient Tag inside Product Card */
+.ul-inline-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 0.79rem;
+  margin: 1px 0;
+  transition: background 0.14s var(--ease), border-color 0.14s var(--ease);
+}
+
+.ul-inline-btn:hover {
+  background: var(--brand-50);
+  border-color: var(--brand-600);
+  color: var(--brand-900);
+}
+
+/* Crop Mini Pills & Registered Uses / Dosages Table */
+.por-crops-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.por-crop-pills {
+  display: inline-flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.crop-mini-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.por-uses-table {
+  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.por-use-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 0.78rem;
+}
+
+.por-use-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.por-use-crop {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.por-use-dose {
+  color: var(--brand-800);
+  background: var(--brand-50);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.por-use-sub {
+  margin-top: 3px;
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Stock Alternatives Button & Drawer */
+.por-alt-bar {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.por-alt-btn {
+  width: 100%;
+  justify-content: space-between;
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--brand-900);
+}
+
+.por-alt-btn.is-active {
+  background: var(--brand-900);
+  border-color: var(--brand-900);
+  color: #ffffff;
+}
+
+.alt-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-50);
+  color: var(--brand-900);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.por-alt-btn.is-active .alt-count-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.alt-drawer {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alt-filter-note {
+  font-size: 0.75rem;
+  color: var(--info-dark);
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  padding: 6px 9px;
+  border-radius: 7px;
+}
+
+.alt-empty {
+  font-size: 0.81rem;
+  color: var(--ink-muted);
+  text-align: center;
+  padding: 8px 4px;
+}
+
+.alt-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.alt-group-title {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.alt-group-title.is-exact {
+  background: var(--brand-50);
+  color: var(--brand-900);
+}
+
+.alt-group-title.is-moa {
+  background: var(--info-bg);
+  color: var(--info-dark);
+}
+
+.alt-card {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+}
+
+.alt-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.alt-product-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--brand-800);
+  text-align: left;
+}
+
+.alt-product-link:hover {
+  text-decoration: underline;
+}
+
+.alt-card-sub {
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.alt-qty-box {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.alt-qty-val {
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--brand-900);
+}
+
+.alt-qty-pack {
+  font-size: 0.73rem;
+  color: var(--ink-muted);
+}
+
+.alt-detail-line {
+  margin-top: 5px;
+  font-size: 0.79rem;
+  color: var(--ink-secondary);
+  line-height: 1.4;
+}
+
+.alt-conc-diff {
+  color: var(--warn-dark);
+  font-weight: 700;
+}
+
+.alt-conc-match {
+  color: var(--brand-700);
+  font-weight: 700;
+}
+
+.product-card.is-out-of-stock {
+  border-style: dashed;
+  background: #fbfcfb;
+}
+
 /* Inline Packaging Config Drawer */
 .pack-details {
   margin-top: 12px;

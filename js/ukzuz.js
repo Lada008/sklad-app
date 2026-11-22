@@ -2,11 +2,59 @@
  * Modul pro registr přípravků na ochranu rostlin ÚKZÚZ (eAGRI POR).
  * - Čištění názvů položek z Business Central od velikostí balení a poznámek dodavatele
  * - Inteligentní párování se skladem (název, kompaktní název, registrační číslo, ID, tolerance překlepu)
+ * - Kategorizace plodin (Obiloviny, Řepka, Réva vinná, Kukuřice, Brambory a cukrovka, Sady a zelenina, Ostatní)
+ * - Vyhledávání alternativ ze skladu (1. Přesná náhrada se stejnou účinnou látkou, 2. Alternativa ze stejné chemické skupiny + stejná plodina)
  * - Záložní ruční nahrání souboru POR (.xlsx, .xml, .csv, .json) přímo v prohlížeči
  */
 
 import { getCzechNowStr, normalizeText } from './domain.js';
 import { readZipEntries, readEntryAsText, getEntryCompressedSlice } from './xlsx-parser.js';
+
+export const CROP_CATEGORIES = [
+  { key: 'all', label: 'Vše', icon: '🌿' },
+  { key: 'obiloviny', label: 'Obiloviny', icon: '🌾' },
+  { key: 'repka', label: 'Řepka', icon: '🌼' },
+  { key: 'reva', label: 'Réva vinná', icon: '🍇' },
+  { key: 'kukurice', label: 'Kukuřice', icon: '🌽' },
+  { key: 'brambory_cukrovka', label: 'Brambory/Cukrovka', icon: '🥔' },
+  { key: 'sady_zelenina', label: 'Sady/Zelenina', icon: '🍎' },
+  { key: 'ostatni', label: 'Ostatní', icon: '🌱' },
+];
+
+export const CROP_CATEGORY_LABELS = Object.fromEntries(
+  CROP_CATEGORIES.map((c) => [c.key, `${c.icon} ${c.label}`])
+);
+
+const CROP_RULES = [
+  ['obiloviny', ['psenic', 'jecmen', 'zito', 'tritikal', 'oves', 'obilnin', 'obilovin', 'spald', 'sladovn']],
+  ['repka', ['repk', 'horcic', 'brukvovit', 'lnick']],
+  ['reva', ['reva', 'revy', 'reve', 'vinic', 'vinn']],
+  ['kukurice', ['kukuric', 'cirok', 'proso']],
+  ['brambory_cukrovka', ['brambor', 'batat', 'cukrovk', 'repa cukrov', 'repa krmn', 'repa sal', 'repa cerven', 'krmna repa', 'cukrova repa']],
+  [
+    'sady_zelenina',
+    [
+      'jablon', 'hrusn', 'slivon', 'tresn', 'visn', 'merunk', 'broskvon', 'jadrov', 'peckov',
+      'ovocn', 'sady', 'jahod', 'malin', 'ostruzin', 'rybiz', 'angrest', 'boruvk', 'orech',
+      'oresak', 'lisk', 'zelenin', 'rajc', 'paprik', 'okurk', 'cibul', 'cesnek', 'por',
+      'mrkev', 'petrzel', 'celer', 'zeli', 'kapust', 'kvetak', 'brokolic', 'salat', 'spenat',
+      'hrach zahrad', 'fazol', 'tykv', 'cuket', 'meloun', 'redkv', 'chrest', 'rebarb',
+    ],
+  ],
+];
+
+export function classifyCropCategories(cropText) {
+  const norm = normalizeText(cropText);
+  if (!norm) return [];
+  const out = [];
+  for (const [key, kwList] of CROP_RULES) {
+    if (kwList.some((kw) => norm.includes(kw))) {
+      out.push(key);
+    }
+  }
+  if (!out.length) out.push('ostatni');
+  return out;
+}
 
 const FORMULATION_CODES = new Set([
   'ec', 'sc', 'wg', 'wdg', 'wp', 'sl', 'se', 'cs', 'ew', 'sg', 'od', 'fs', 'me',
@@ -23,19 +71,12 @@ const FORMULATION_CODES = new Set([
 export function cleanBcProductName(rawName) {
   if (!rawName) return '';
   let s = String(rawName).replace(/\u00a0/g, ' ').trim();
-
-  // Závorky s balením nebo dodavatelem: (5L), (BAYER), (FMC), (AG Novachem), (Innvigo)
   s = s.replace(/\([^)]*\)/g, ' ');
-  // Násobná balení: 4x5L, 12 x 1 l, 2*10kg
   s = s.replace(/\b\d+\s*[xX*×]\s*\d+(?:[.,]\d+)?\s*(?:l|litr(?:ů|y)?|kg|g|ml|ks)\b/gi, ' ');
-  // Jednotlivá balení: 5L, 20 L, 10 KG, 1 L bal., 500ML, 250G
   s = s.replace(/\b\d+(?:[.,]\d+)?\s*(?:l|litr(?:ů|y)?|kg|g|ml)\b(?:\s*[-–]?\s*bal\.?)?/gi, ' ');
-  // Obchodní a balicí přívlastky
   s = s.replace(/(?:^|\s)[-–]\s*(?:maxipack|multipack|pack|xxl|xl|akce|bal\.?|bal[ií][cč]ek)\b/gi, ' ');
   s = s.replace(/\b(?:bal\.?|bal[ií][cč]ek|kanystr|pytel|krabice|l[aá]hev|maxipack|multipack)\b/gi, ' ');
-  // Osamocené velké L na konci (např. "RETAFOS PRIM L")
   s = s.replace(/\s+L\s*$/, ' ');
-  // Koncové oddělovače
   s = s.replace(/[\s\-–/,+.:]+$/g, '');
   s = s.replace(/\s+/g, ' ').trim();
   return s;
@@ -98,7 +139,6 @@ export function buildPorIndex(porItems = []) {
     }
   }
 
-  // Ponech jen jednoznačné základní názvy (bez kolizí), aby nedocházelo k chybným shodám
   for (const [base, count] of baseCounts.entries()) {
     if (count > 1) byBase.delete(base);
   }
@@ -120,7 +160,6 @@ export function buildPorIndex(porItems = []) {
 export function matchProductToPor(productCode, productName, porIndex) {
   if (!porIndex || !porIndex.items?.length) return null;
 
-  // 1. Shoda podle registračního čísla nebo ID položky (pokud je v kódu)
   const codeClean = normalizeText(productCode).replace(/\s+/g, '');
   if (codeClean) {
     const byReg = porIndex.byReg.get(codeClean);
@@ -131,7 +170,6 @@ export function matchProductToPor(productCode, productName, porIndex) {
 
   if (!productName) return null;
 
-  // 2. Přesná shoda na očištěném názvu
   const cleaned = cleanBcProductName(productName);
   const norm = normalizeText(cleaned);
   if (norm) {
@@ -139,30 +177,26 @@ export function matchProductToPor(productCode, productName, porIndex) {
     if (exact) return exact;
   }
 
-  // 3. Kompaktní shoda bez mezer a interpunkce (např. "ACTELIC 50EC" ↔ "Actellic 50 EC")
   const comp = toCompact(cleaned);
   if (comp) {
     const compactHit = porIndex.byCompact.get(comp);
     if (compactHit) return compactHit;
 
-    // 4. Tolerance trojitých písmen (např. "CYPERKILLL MAX" -> "Cyperkill Max")
     const dedup = dedupTripleChars(comp);
     const dedupHit = porIndex.byDedupCompact.get(dedup);
     if (dedupHit) return dedupHit;
-    // Zkusit zredukovat zdvojená písmena u překlepů typu "cyperkilll" -> "cyperkill"
+
     const dedupSingle = comp.replace(/(.)\1{2,}/g, '$1');
     const dedupSingleHit = porIndex.byCompact.get(dedupSingle);
     if (dedupSingleHit) return dedupSingleHit;
   }
 
-  // 5. Jednoznačná shoda po odstranění kódu formulace (EC/WG/WP/SC…)
   const base = stripTrailingFormulation(cleaned);
   if (base.length >= 4) {
     const baseHit = porIndex.byBase.get(base);
     if (baseHit) return baseHit;
   }
 
-  // 6. Registrační číslo obsažené přímo v názvu (např. "4956-1")
   const regInName = String(productName).match(/\b(\d{4,5}-\d[A-Z]?)\b/i);
   if (regInName) {
     const regHit = porIndex.byReg.get(normalizeText(regInName[1]));
@@ -173,20 +207,163 @@ export function matchProductToPor(productCode, productName, porIndex) {
 }
 
 /**
- * Vytvoří vyhledávací řetězec ze záznamu ÚKZÚZ (pro hledání podle účinné látky, reg. čísla, PHO, včel).
+ * Vytvoří vyhledávací řetězec ze záznamu ÚKZÚZ (pro hledání podle účinné látky, reg. čísla, PHO, včel, plodin).
  */
 export function buildPorSearchText(por) {
   if (!por) return '';
   const ulText = (por.ul || []).map((u) => `${u.n} ${u.c || ''} ${u.g || ''}`).join(' ');
   const groups = (por.groups || []).join(' ');
+  const crops = (por.crops || []).join(' ');
   const pho = por.pho?.restricted ? `pho omezeni ${por.pho.code} ${por.pho.text}` : '';
   const bees =
-    por.bees?.level && por.bees.level !== 'ok'
+    por.bees?.code && por.bees.code !== 'OK'
       ? `vcely ${por.bees.code} ${por.bees.label}`
       : '';
   return normalizeText(
-    `${por.name} ${por.reg || ''} ${por.status || ''} ${por.fn || ''} ${ulText} ${groups} ${pho} ${bees}`
+    `${por.name} ${por.reg || ''} ${por.status || ''} ${por.fn || ''} ${ulText} ${groups} ${crops} ${pho} ${bees}`
   );
+}
+
+/**
+ * Ověří, zda záznam POR vyhovuje zvoleným bezpečnostním přepínačům (OP II. st. / Včely) a plodině.
+ */
+export function matchesPorSafetyAndCrop(por, { cropCategory = 'all', phoAllowedOnly = false, beeSafeOnly = false } = {}) {
+  if (cropCategory && cropCategory !== 'all') {
+    if (!por || !Array.isArray(por.cg) || !por.cg.includes(cropCategory)) {
+      return false;
+    }
+  }
+  if (phoAllowedOnly) {
+    if (!por || por.pho?.restricted) {
+      return false;
+    }
+  }
+  if (beeSafeOnly) {
+    if (!por) return false;
+    const bCode = String(por.bees?.code || '').toUpperCase();
+    const bLevel = String(por.bees?.level || 'ok');
+    if (bCode === 'ZNV' || bCode === 'NV' || bCode === 'SPE8' || bLevel === 'danger' || bLevel === 'warn') {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Ověří, zda produkt obsahuje všechny vybrané účinné látky (multiselect).
+ */
+export function matchesActiveSubstances(por, selectedSubstances = []) {
+  if (!selectedSubstances || !selectedSubstances.length) return true;
+  if (!por || !Array.isArray(por.ul) || !por.ul.length) return false;
+  const prodSet = new Set(por.ul.map((u) => normalizeText(u.n)));
+  return selectedSubstances.every((sel) => prodSet.has(normalizeText(sel)));
+}
+
+/**
+ * Vyhledá dostupné alternativní varianty (náhrady) z aktuálního skladu (kde je volné množství > 0),
+ * při plném respektování aktivních filtrů (sklad, plodina, OP II. st., bezpečné pro včely).
+ *
+ * Vrací:
+ * - exactSubstitutes: přípravky skladem se stejnou účinnou látkou (vč. porovnání koncentrace)
+ * - groupAlternatives: přípravky skladem ze stejné chemické skupiny (Skupiny) registrované do stejné plodiny
+ */
+export function findStockAlternatives(targetPor, targetCode, scopedStockProducts, activeFilters = {}) {
+  if (!targetPor) {
+    return { exactSubstitutes: [], groupAlternatives: [] };
+  }
+
+  const targetUlMap = new Map();
+  for (const u of targetPor.ul || []) {
+    const key = normalizeText(u.n);
+    if (key) targetUlMap.set(key, u);
+  }
+
+  const targetGroups = new Set(
+    (targetPor.groups || [])
+      .map((g) => normalizeText(g))
+      .filter((g) => g && g !== 'other')
+  );
+
+  const activeCrop = activeFilters.cropCategory && activeFilters.cropCategory !== 'all'
+    ? activeFilters.cropCategory
+    : null;
+  const targetCrops = new Set(targetPor.cg || []);
+
+  const exactSubstitutes = [];
+  const groupAlternatives = [];
+  const targetNameNorm = normalizeText(targetPor.name);
+
+  for (const cand of scopedStockProducts) {
+    if (!cand || cand.totalQty <= 0 || !cand.por) continue;
+    if (targetCode && cand.code === targetCode) continue;
+    if (!targetCode && normalizeText(cand.por.name) === targetNameNorm) continue;
+
+    // Respektuj aktivní bezpečnostní a plodinové filtry obchodníka
+    if (!matchesPorSafetyAndCrop(cand.por, activeFilters)) continue;
+
+    const candUlList = cand.por.ul || [];
+    const sharedUl = [];
+    for (const cu of candUlList) {
+      const k = normalizeText(cu.n);
+      if (targetUlMap.has(k)) {
+        sharedUl.push({
+          name: cu.n,
+          candConc: cu.c || '',
+          targetConc: targetUlMap.get(k).c || '',
+        });
+      }
+    }
+
+    if (sharedUl.length > 0) {
+      const allTargetMatched = targetUlMap.size > 0 && sharedUl.length === targetUlMap.size && candUlList.length === targetUlMap.size;
+      exactSubstitutes.push({
+        product: cand,
+        sharedUl,
+        isFullCompositionMatch: allTargetMatched,
+      });
+      continue;
+    }
+
+    // 2. Alternativa ze stejné chemické skupiny + stejná plodina
+    const candGroups = (cand.por.groups || []).filter((g) => {
+      const gn = normalizeText(g);
+      return gn && gn !== 'other' && targetGroups.has(gn);
+    });
+    if (!candGroups.length) continue;
+
+    const candCrops = cand.por.cg || [];
+    const sharedCrops = activeCrop
+      ? (candCrops.includes(activeCrop) ? [activeCrop] : [])
+      : candCrops.filter((c) => targetCrops.has(c));
+
+    // Pokud původní přípravek neměl specifikovanou plodinu, povol shodu jen podle chemické skupiny
+    if (targetCrops.size > 0 && sharedCrops.length === 0) continue;
+
+    groupAlternatives.push({
+      product: cand,
+      sharedGroups: candGroups,
+      sharedCrops,
+    });
+  }
+
+  exactSubstitutes.sort((a, b) => {
+    if (a.isFullCompositionMatch !== b.isFullCompositionMatch) {
+      return a.isFullCompositionMatch ? -1 : 1;
+    }
+    if (b.sharedUl.length !== a.sharedUl.length) {
+      return b.sharedUl.length - a.sharedUl.length;
+    }
+    return b.product.totalQty - a.product.totalQty;
+  });
+
+  groupAlternatives.sort((a, b) => {
+    if (b.sharedGroups.length !== a.sharedGroups.length) {
+      return b.sharedGroups.length - a.sharedGroups.length;
+    }
+    return b.product.totalQty - a.product.totalQty;
+  });
+
+  return { exactSubstitutes, groupAlternatives };
 }
 
 // ===========================================================================
@@ -196,6 +373,10 @@ export function buildPorSearchText(por) {
 function cleanWs(val) {
   if (val === null || val === undefined) return '';
   return String(val).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function cleanDoseText(val) {
+  return cleanWs(val).replace(/\s*,\s*$/, '').replace(/\s+,/g, ',').trim();
 }
 
 function parseDateToIso(raw) {
@@ -233,32 +414,43 @@ function classifyPho(code, meaning, note) {
     norm.includes('bez oznaceni');
   let restricted = !unrestricted && Boolean(c || full);
   if (norm.includes('vyloucen') && !norm.includes('neni vyloucen')) restricted = true;
+  const displayCode = restricted && (norm.includes('op ii') || c === 'OP II.st.')
+    ? 'OP II.st.'
+    : (c && c !== '-' && c !== '- -' ? c : 'Bez omezení');
   return {
-    code: c && c !== '-' && c !== '- -' ? c : 'Bez omezení',
+    code: displayCode,
     restricted,
-    text: full || (c && c !== '-' && c !== '- -' ? c : 'Bez omezení v PHO'),
+    text: full || (restricted ? displayCode : 'Přípravek není vyloučen z použití v OP II. stupně zdrojů vod.'),
   };
 }
 
 function classifyBees(code, meaning, note) {
-  const c = cleanWs(code);
+  const c = cleanWs(code).replace(/\.$/, '');
   const full = joinMeaningNote(meaning, note);
   const cu = c.toUpperCase();
   const norm = normalizeText(`${c} ${full}`);
+  let stdCode = 'OK';
   let level = 'ok';
-  let label = 'Bez označení (přijatelný pro včely)';
+  let label = 'Bez omezení pro včely';
   if (cu === 'ZNV' || norm.includes('zvlast nebezpecny pro vcely')) {
+    stdCode = 'ZNV';
     level = 'danger';
     label = 'ZNV — Zvlášť nebezpečný pro včely';
   } else if (cu === 'NV' || norm.includes('nebezpecny pro vcely')) {
+    stdCode = 'NV';
     level = 'warn';
     label = 'NV — Nebezpečný pro včely';
+  } else if (cu === 'SPE8' || norm.includes('spe8') || norm.includes('spe 8')) {
+    stdCode = 'SPe8';
+    level = 'warn';
+    label = 'SPe8 — Nebezpečný pro včely';
   } else if (cu === 'DO' || norm.includes('cmelak') || norm.includes('opylovac') || norm.includes('sklenik')) {
+    stdCode = 'DO';
     level = 'info';
     label = 'DO — Další omezení (opylovači)';
   }
   return {
-    code: c && c !== '-' && c !== '- -' ? c : 'OK',
+    code: stdCode,
     level,
     label,
     text: full || label,
@@ -266,7 +458,16 @@ function classifyBees(code, meaning, note) {
 }
 
 const PHO_SEV = (p) => (!p ? 0 : p.restricted ? 2 : 1);
-const BEE_SEV = (b) => (!b ? 0 : { ok: 1, info: 2, warn: 3, danger: 4 }[b.level] || 0);
+const BEE_SEV = (b) => {
+  if (!b) return 0;
+  const c = String(b.code || '').toUpperCase();
+  if (c === 'ZNV') return 5;
+  if (c === 'NV' || c === 'SPE8') return 4;
+  if (c === 'DO') return 2;
+  return 1;
+};
+
+const CROP_ORDER = ['obiloviny', 'repka', 'reva', 'kukurice', 'brambory_cukrovka', 'sady_zelenina', 'ostatni'];
 
 function mergeDecisions(decisions) {
   const allowed = new Set(['Platné rozhodnutí', 'Do spotřebování zásob']);
@@ -301,13 +502,17 @@ function mergeDecisions(decisions) {
     const seenGrp = new Set();
     for (const u of ulRaw) {
       const un = cleanWs(u.n);
-      const uc = cleanWs(u.c);
+      const uq = cleanWs(u.q);
+      const uu = cleanWs(u.u);
+      const uc = cleanWs(u.c) || (uq ? `${uq} ${uu}`.trim() : uu);
       const ug = cleanWs(u.g);
       if (!un) continue;
       const k = `${un.toLowerCase()}|${uc.toLowerCase()}`;
       if (!seenUl.has(k)) {
         seenUl.add(k);
         const obj = { n: un };
+        if (uq) obj.q = uq;
+        if (uu) obj.u = uu;
         if (uc) obj.c = uc;
         if (ug) obj.g = ug;
         cleanUl.push(obj);
@@ -325,9 +530,45 @@ function mergeDecisions(decisions) {
 
     let bestPho = primary.pho;
     let bestBees = primary.bees;
-    for (const alt of list.slice(1)) {
-      if (PHO_SEV(alt.pho) > PHO_SEV(bestPho)) bestPho = alt.pho;
-      if (BEE_SEV(alt.bees) > BEE_SEV(bestBees)) bestBees = alt.bees;
+    const cgSet = new Set();
+    const cropsList = [];
+    const seenCrops = new Set();
+    const usesList = [];
+    const seenUses = new Set();
+
+    for (const dec of list) {
+      if (PHO_SEV(dec.pho) > PHO_SEV(bestPho)) bestPho = dec.pho;
+      if (BEE_SEV(dec.bees) > BEE_SEV(bestBees)) bestBees = dec.bees;
+      for (const cg of dec.cg || []) cgSet.add(cg);
+      for (const cr of dec.crops || []) {
+        const cc = cleanWs(cr);
+        const cn = normalizeText(cc);
+        if (cc && !seenCrops.has(cn)) {
+          seenCrops.add(cn);
+          cropsList.push(cc);
+        }
+      }
+      for (const u of dec.uses || []) {
+        const cTxt = cleanWs(u.c);
+        const pTxt = cleanWs(u.p);
+        const dTxt = cleanDoseText(u.d);
+        const olTxt = cleanWs(u.ol);
+        if (!cTxt) continue;
+        const uk = `${normalizeText(cTxt)}|${normalizeText(pTxt)}|${normalizeText(dTxt)}`;
+        if (!seenUses.has(uk)) {
+          seenUses.add(uk);
+          const uo = { c: cTxt };
+          if (pTxt) uo.p = pTxt;
+          if (dTxt) uo.d = dTxt;
+          if (olTxt) uo.ol = olTxt;
+          usesList.push(uo);
+        }
+        const cn = normalizeText(cTxt);
+        if (!seenCrops.has(cn)) {
+          seenCrops.add(cn);
+          cropsList.push(cTxt);
+        }
+      }
     }
 
     products.push({
@@ -344,6 +585,9 @@ function mergeDecisions(decisions) {
       groups,
       pho: bestPho || classifyPho('', '', ''),
       bees: bestBees || classifyBees('', '', ''),
+      cg: CROP_ORDER.filter((k) => cgSet.has(k)),
+      crops: cropsList.slice(0, 25),
+      uses: usesList.slice(0, 18),
       ...(primary.itemId ? { id: String(primary.itemId) } : {}),
     });
   }
@@ -363,7 +607,7 @@ function wrapManualPayload(products, fileName) {
       validCount: products.filter((p) => p.status === 'Platné rozhodnutí').length,
       stockConsumptionCount: products.filter((p) => p.status === 'Do spotřebování zásob').length,
       phoRestrictedCount: products.filter((p) => p.pho?.restricted).length,
-      beeRiskCount: products.filter((p) => p.bees?.level === 'warn' || p.bees?.level === 'danger').length,
+      beeRiskCount: products.filter((p) => ['ZNV', 'NV', 'SPe8'].includes(p.bees?.code)).length,
       isLocalOverride: true,
     },
     items: products,
@@ -467,7 +711,7 @@ async function streamXlsxSheetRows(arrayBuffer, entry, sharedStrings, onRow) {
 }
 
 async function parseManualPorXlsx(arrayBuffer, fileName, report) {
-  report(10, 'Rozbaluji strukturu POR (.xlsx)…');
+  report(8, 'Rozbaluji strukturu POR (.xlsx)…');
   const entries = readZipEntries(arrayBuffer);
   const wbXml = await readEntryAsText(arrayBuffer, entries.get('xl/workbook.xml'));
   const relsXml = await readEntryAsText(arrayBuffer, entries.get('xl/_rels/workbook.xml.rels'));
@@ -489,7 +733,7 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
     if (name && rid && relMap.has(rid)) sheets.set(normalizeText(name), relMap.get(rid));
   }
 
-  report(22, 'Načítám tabulku textů ÚKZÚZ…');
+  report(18, 'Načítám tabulku textů ÚKZÚZ…');
   const sharedStrings = [];
   const ssEntry = entries.get('xl/sharedStrings.xml');
   if (ssEntry) {
@@ -507,20 +751,26 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
   }
 
   const findSheet = (prefix) => {
-    for (const [k, v] of sheets.entries()) if (k.startsWith(prefix)) return entries.get(v);
+    for (const [k, v] of sheets.entries()) {
+      if (k.includes('vs.')) continue;
+      if (k === prefix || k.startsWith(prefix)) return entries.get(v);
+    }
     return null;
   };
 
   const shRozh = findSheet('rozhodnuti') || entries.get(Array.from(sheets.values())[0]);
   const shUdaje = findSheet('udaje');
   const shUl = findSheet('ucinne latky');
+  const shDavk = findSheet('davkovani');
+  const shPouz = findSheet('pouziti');
+  const shPlod = findSheet('plodiny');
 
   const allowed = new Set(['Platné rozhodnutí', 'Do spotřebování zásob']);
   const decByKey = new Map();
   const decsById = new Map();
   const allowedIds = new Set();
 
-  report(40, 'Zpracovávám list Rozhodnutí…');
+  report(32, 'Zpracovávám list Rozhodnutí…');
   await streamXlsxSheetRows(arrayBuffer, shRozh, sharedStrings, (row) => {
     const status = cleanWs(row['Aktuální stav rozhodnutí']);
     if (!allowed.has(status)) return;
@@ -546,6 +796,9 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
       ul: [],
       pho: null,
       bees: null,
+      cg: new Set(),
+      crops: [],
+      uses: [],
     };
     decByKey.set(`${name}\x1f${decId}`, rec);
     if (decId) {
@@ -554,8 +807,13 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
     }
   });
 
+  const getTargets = (name, decId) => {
+    const exact = decByKey.get(`${name}\x1f${decId}`);
+    return exact ? [exact] : decsById.get(decId) || [];
+  };
+
   if (shUdaje) {
-    report(65, 'Zpracovávám omezení PHO a rizika pro včely…');
+    report(50, 'Zpracovávám omezení PHO a rizika pro včely…');
     await streamXlsxSheetRows(arrayBuffer, shUdaje, sharedStrings, (row) => {
       const decId = cleanWs(row['Id rozhodnutí']);
       if (!allowedIds.has(decId)) return;
@@ -563,9 +821,7 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
       const isPho = u.includes('ochranna pasma vod');
       const isBees = u.includes('riziko pro vcely');
       if (!isPho && !isBees) return;
-      const name = cleanWs(row['Obchodní název přípravku']);
-      const exact = decByKey.get(`${name}\x1f${decId}`);
-      const targets = exact ? [exact] : decsById.get(decId) || [];
+      const targets = getTargets(cleanWs(row['Obchodní název přípravku']), decId);
       if (isPho) {
         const p = classifyPho(row['Zkratka'], row['Význam údaje'], row['Poznámka']);
         for (const t of targets) if (PHO_SEV(p) > PHO_SEV(t.pho)) t.pho = p;
@@ -577,7 +833,7 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
   }
 
   if (shUl) {
-    report(85, 'Zpracovávám účinné látky a chemické skupiny…');
+    report(66, 'Zpracovávám účinné látky a chemické skupiny…');
     await streamXlsxSheetRows(arrayBuffer, shUl, sharedStrings, (row) => {
       const decId = cleanWs(row['Id rozhodnutí']);
       if (!allowedIds.has(decId)) return;
@@ -587,14 +843,66 @@ async function parseManualPorXlsx(arrayBuffer, fileName, report) {
       const mj = cleanWs(row['Měrná jednotka']);
       const conc = qty ? `${qty} ${mj}`.trim() : mj;
       const group = cleanWs(row['Skupiny']);
-      const name = cleanWs(row['Obchodní název přípravku']);
-      const exact = decByKey.get(`${name}\x1f${decId}`);
-      const targets = exact ? [exact] : decsById.get(decId) || [];
-      for (const t of targets) t.ul.push({ n: un, c: conc, g: group });
+      const targets = getTargets(cleanWs(row['Obchodní název přípravku']), decId);
+      for (const t of targets) t.ul.push({ n: un, q: qty, u: mj, c: conc, g: group });
     });
   }
 
-  report(96, 'Sestavuji čistý registr ÚKZÚZ…');
+  if (shDavk) {
+    report(78, 'Zpracovávám dávkování a registrované plodiny…');
+    await streamXlsxSheetRows(arrayBuffer, shDavk, sharedStrings, (row) => {
+      const decId = cleanWs(row['Id rozhodnutí']);
+      if (!allowedIds.has(decId)) return;
+      const crop = cleanWs(row['Plodina, oblast použití']);
+      if (!crop) return;
+      const pest = cleanWs(row['Škodlivý organismus, jiný účel použití']);
+      const dose = cleanDoseText(row['Celá dávka textem'] || `${row['Dávkování'] || ''} ${row['Měrná jednotka'] || ''}`);
+      const cats = classifyCropCategories(crop);
+      const targets = getTargets(cleanWs(row['Obchodní název přípravku']), decId);
+      for (const t of targets) {
+        cats.forEach((c) => t.cg.add(c));
+        t.uses.push({ c: crop, p: pest, d: dose });
+      }
+    });
+  } else if (shPouz) {
+    report(78, 'Zpracovávám použití a plodiny…');
+    await streamXlsxSheetRows(arrayBuffer, shPouz, sharedStrings, (row) => {
+      const decId = cleanWs(row['Id rozhodnutí']);
+      if (!allowedIds.has(decId)) return;
+      const crop = cleanWs(row['Plodina, oblast použití']);
+      if (!crop) return;
+      const pest = cleanWs(row['Škodlivý organismus, jiný účel použití']);
+      const dose = cleanDoseText(row['Dávkování']);
+      const ol = cleanWs(row['Ochranná lhůta']);
+      const cats = classifyCropCategories(crop);
+      const targets = getTargets(cleanWs(row['Obchodní název přípravku']), decId);
+      for (const t of targets) {
+        cats.forEach((c) => t.cg.add(c));
+        t.uses.push({ c: crop, p: pest, d: dose, ol });
+      }
+    });
+  }
+
+  if (shPlod) {
+    report(90, 'Seskupuji kategorie plodin…');
+    await streamXlsxSheetRows(arrayBuffer, shPlod, sharedStrings, (row) => {
+      const decId = cleanWs(row['Id rozhodnutí']);
+      if (!allowedIds.has(decId)) return;
+      const n1 = cleanWs(row['Název']);
+      const n2 = cleanWs(row['Výpis plodin podle webové prezentace (bez vazby na číselník)']);
+      const targets = getTargets(cleanWs(row['Obchodní název přípravku']), decId);
+      for (const lbl of [n1, n2]) {
+        if (!lbl) continue;
+        const cats = classifyCropCategories(lbl);
+        for (const t of targets) {
+          cats.forEach((c) => t.cg.add(c));
+          t.crops.push(lbl);
+        }
+      }
+    });
+  }
+
+  report(97, 'Sestavuji čistý registr ÚKZÚZ…');
   const products = mergeDecisions(Array.from(decByKey.values()));
   report(100, 'Hotovo!');
   return wrapManualPayload(products, fileName);
@@ -642,7 +950,7 @@ async function parseManualPorXml(file, report) {
           const g = tagVal(sm[1], 'NAZEV_EN') || tagVal(sm[1], 'KOD');
           if (g && !groups.includes(g)) groups.push(g);
         }
-        ul.push({ n: un, c: qty ? `${qty} ${mj}`.trim() : mj, g: groups.join(', ') });
+        ul.push({ n: un, q: qty, u: mj, c: qty ? `${qty} ${mj}`.trim() : mj, g: groups.join(', ') });
       }
 
       let bestPho = null;
@@ -660,6 +968,21 @@ async function parseManualPorXml(file, report) {
         }
       }
 
+      const cg = new Set();
+      const crops = [];
+      const uses = [];
+      for (const pm of r.matchAll(/<POUZITI\b[^>]*>([\s\S]*?)<\/POUZITI>/gi)) {
+        const pb = pm[1];
+        const plod = tagVal(pb, 'PLODINA');
+        if (!plod) continue;
+        const so = tagVal(pb, 'SO');
+        const davka = cleanDoseText(tagVal(pb, 'DAVKA'));
+        const ol = tagVal(pb, 'OL');
+        classifyCropCategories(plod).forEach((c) => cg.add(c));
+        crops.push(plod);
+        uses.push({ c: plod, p: so, d: davka, ol });
+      }
+
       const base = {
         itemId,
         reg: tagVal(r, 'REG_CISLO'),
@@ -675,6 +998,9 @@ async function parseManualPorXml(file, report) {
         ul,
         pho: bestPho,
         bees: bestBees,
+        cg,
+        crops,
+        uses,
       };
       for (const nm of names) decisions.push({ ...base, name: nm });
     }
@@ -762,6 +1088,8 @@ async function parseManualPorCsv(file, report) {
 
     const ulStr = row['ucinne latky'] || row['ucinna latka'] || '';
     const grpStr = row['chemicka skupina'] || row['skupiny'] || '';
+    const plod = row['plodina'] || row['plodina, oblast pouziti'] || '';
+    const davka = cleanDoseText(row['davkovani'] || row['cela davka textem'] || '');
     decisions.push({
       name,
       reg: row['registracni cislo'] || row['reg_cislo'] || '',
@@ -779,6 +1107,9 @@ async function parseManualPorCsv(file, report) {
         .map((n) => ({ n, c: '', g: grpStr })),
       pho: classifyPho(row['pho'] || row['ochranna pasma vod'] || '', '', ''),
       bees: classifyBees(row['riziko pro vcely'] || row['vcely'] || '', '', ''),
+      cg: new Set(plod ? classifyCropCategories(plod) : []),
+      crops: plod ? [plod] : [],
+      uses: plod ? [{ c: plod, d: davka }] : [],
     });
   }
 

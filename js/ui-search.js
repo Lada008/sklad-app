@@ -1,5 +1,11 @@
 /**
- * Záložka 1: Okamžité vyhledávání, našeptávač, filtry kategorií, skener čárových kódů a karty produktů.
+ * Záložka 1: Katalog & mobilní pohled obchodníka / skladníka.
+ * - Okamžité vyhledávání (název, účinná látka, šarže, reg. č., sklad)
+ * - Rychlé záložky podle plodin (stříkání): Vše | Obiloviny | Řepka | Réva vinná | Kukuřice | Brambory/Cukrovka | Sady/Zelenina | Ostatní
+ * - Multiselect filtr podle účinné látky s našeptávačem
+ * - Bezpečnostní přepínače: Pouze skladem (> 0 MJ), Povolené v OP II. st. (vody), Bezpečné pro včely
+ * - Výrazné barevné štítky OP II. st. a Včely: ZNV / NV / SPe8 na každé kartě
+ * - Funkce „Alternativy skladem“ (1. Přesná náhrada se stejnou účinnou látkou + porovnání koncentrace, 2. Alternativa ze stejné chemické skupiny + stejná plodina) při respektování aktivních filtrů
  */
 
 import {
@@ -13,10 +19,18 @@ import {
   normalizeText,
   PACKAGING_TYPES,
   paletovaKalkulacka,
+  parseCategory,
   prepocetNaBaleni,
   ziskejKrokBaleni,
 } from './domain.js';
 import { clearRecentSearches, loadRecentSearches, pushRecentSearch } from './storage.js';
+import {
+  CROP_CATEGORIES,
+  CROP_CATEGORY_LABELS,
+  findStockAlternatives,
+  matchesActiveSubstances,
+  matchesPorSafetyAndCrop,
+} from './ukzuz.js';
 
 const PAGE_SIZE = 25;
 
@@ -24,6 +38,14 @@ export function createSearchTab(ctx) {
   let query = '';
   let selectedExactName = null;
   let selectedCategory = 'all';
+  let selectedCrop = 'all';
+  let selectedSubstances = [];
+  let ulSearchQuery = '';
+  let inStockOnly = true;
+  let phoAllowedOnly = false;
+  let beeSafeOnly = false;
+  let openAlternativesSet = new Set();
+
   let visibleLimit = PAGE_SIZE;
   let scannerStream = null;
   let scannerRaf = null;
@@ -65,6 +87,37 @@ export function createSearchTab(ctx) {
       <div id="search-autocomplete" class="autocomplete-list" role="listbox" hidden></div>
     </div>
 
+    <!-- Chytrý agronomický panel filtrů pro obchodníka i sklad -->
+    <div class="agro-filter-panel">
+      <!-- 1. Rychlé záložky podle plodin (stříkání) -->
+      <div class="agro-filter-group">
+        <div class="agro-filter-label">🌾 Plodina (stříkání):</div>
+        <div id="search-crop-tabs" class="chip-row" role="tablist" aria-label="Filtr podle plodiny"></div>
+      </div>
+
+      <!-- 2. Bezpečnostní přepínače + Multiselect účinných látek -->
+      <div class="agro-controls-row">
+        <div id="search-safety-chips" class="safety-chips-wrap" role="group" aria-label="Bezpečnostní filtry"></div>
+
+        <div class="ul-multiselect-wrap" id="ul-multiselect-wrap">
+          <div class="ul-input-shell">
+            <span class="ul-input-icon" aria-hidden="true">🧪</span>
+            <input
+              type="search"
+              id="ul-filter-input"
+              class="ul-filter-input"
+              placeholder="Filtrovat účinnou látku (např. tebukonazol)…"
+              autocomplete="off"
+              aria-label="Filtr podle účinné látky"
+            />
+          </div>
+          <div id="ul-dropdown" class="autocomplete-list ul-dropdown" role="listbox" hidden></div>
+        </div>
+      </div>
+
+      <div id="selected-ul-tags" class="selected-ul-tags" hidden></div>
+    </div>
+
     <div id="search-categories" class="chip-row" aria-label="Filtr podle kategorie"></div>
     <div id="search-results-area"></div>
   `;
@@ -73,10 +126,15 @@ export function createSearchTab(ctx) {
   const clearBtn = document.getElementById('search-clear-btn');
   const scanBtn = document.getElementById('search-scan-btn');
   const acEl = document.getElementById('search-autocomplete');
+  const cropTabsEl = document.getElementById('search-crop-tabs');
+  const safetyChipsEl = document.getElementById('search-safety-chips');
+  const ulWrapEl = document.getElementById('ul-multiselect-wrap');
+  const ulInputEl = document.getElementById('ul-filter-input');
+  const ulDropdownEl = document.getElementById('ul-dropdown');
+  const ulTagsEl = document.getElementById('selected-ul-tags');
   const catEl = document.getElementById('search-categories');
   const resultsEl = document.getElementById('search-results-area');
 
-  // Zobraz tlačítko skeneru, pokud prohlížeč podporuje kameru + BarcodeDetector
   if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
     scanBtn.hidden = false;
   }
@@ -113,11 +171,69 @@ export function createSearchTab(ctx) {
     }
   });
 
+  // --- Multiselect účinných látek ---
+  ulInputEl.addEventListener('input', () => {
+    ulSearchQuery = ulInputEl.value;
+    renderUlDropdown();
+  });
+
+  ulInputEl.addEventListener('focus', () => {
+    renderUlDropdown();
+  });
+
+  ulInputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      ulDropdownEl.hidden = true;
+    }
+  });
+
+  ulDropdownEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ul-pick]');
+    if (!btn) return;
+    const ulName = btn.dataset.ulPick;
+    if (!selectedSubstances.includes(ulName)) {
+      selectedSubstances.push(ulName);
+    } else {
+      selectedSubstances = selectedSubstances.filter((x) => x !== ulName);
+    }
+    ulInputEl.value = '';
+    ulSearchQuery = '';
+    ulDropdownEl.hidden = true;
+    visibleLimit = PAGE_SIZE;
+    renderSelectedUlTags();
+    renderCropTabs();
+    renderCategories();
+    renderResults();
+  });
+
+  ulTagsEl.addEventListener('click', (e) => {
+    const rmBtn = e.target.closest('[data-ul-remove]');
+    if (rmBtn) {
+      const target = rmBtn.dataset.ulRemove;
+      selectedSubstances = selectedSubstances.filter((x) => x !== target);
+      visibleLimit = PAGE_SIZE;
+      renderSelectedUlTags();
+      renderCropTabs();
+      renderCategories();
+      renderResults();
+      return;
+    }
+    if (e.target.closest('[data-reset-all-agro]')) {
+      resetAgroFilters();
+    }
+  });
+
   document.addEventListener('click', (e) => {
     if (!panel.contains(e.target)) {
       acEl.hidden = true;
-    } else if (!e.target.closest('.search-box-wrap')) {
+      ulDropdownEl.hidden = true;
+      return;
+    }
+    if (!e.target.closest('.search-box-wrap')) {
       acEl.hidden = true;
+    }
+    if (!ulWrapEl.contains(e.target)) {
+      ulDropdownEl.hidden = true;
     }
   });
 
@@ -148,6 +264,32 @@ export function createSearchTab(ctx) {
     renderResults();
   });
 
+  cropTabsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-crop]');
+    if (!btn) return;
+    selectedCrop = btn.dataset.crop;
+    visibleLimit = PAGE_SIZE;
+    renderCropTabs();
+    renderSelectedUlTags();
+    renderCategories();
+    renderResults();
+  });
+
+  safetyChipsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-safety]');
+    if (!btn) return;
+    const key = btn.dataset.safety;
+    if (key === 'stock') inStockOnly = !inStockOnly;
+    else if (key === 'pho') phoAllowedOnly = !phoAllowedOnly;
+    else if (key === 'bees') beeSafeOnly = !beeSafeOnly;
+    visibleLimit = PAGE_SIZE;
+    renderSafetyChips();
+    renderSelectedUlTags();
+    renderCropTabs();
+    renderCategories();
+    renderResults();
+  });
+
   catEl.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-cat]');
     if (!chip) return;
@@ -157,7 +299,7 @@ export function createSearchTab(ctx) {
     renderResults();
   });
 
-  // Delegované akce uvnitř výsledků (kopírování kódu, uložení balení, řazení, report, inventura, stránkování)
+  // Delegované akce uvnitř výsledků
   resultsEl.addEventListener('click', (e) => {
     const recentChip = e.target.closest('[data-recent]');
     if (recentChip) {
@@ -168,6 +310,44 @@ export function createSearchTab(ctx) {
     if (e.target.closest('#clear-recent-btn')) {
       clearRecentSearches();
       renderResults();
+      return;
+    }
+
+    if (e.target.closest('[data-reset-all-agro]')) {
+      resetAgroFilters();
+      return;
+    }
+
+    const ulChipBtn = e.target.closest('[data-filter-ul]');
+    if (ulChipBtn) {
+      const ulName = ulChipBtn.dataset.filterUl;
+      if (!selectedSubstances.includes(ulName)) {
+        selectedSubstances.push(ulName);
+        visibleLimit = PAGE_SIZE;
+        renderSelectedUlTags();
+        renderCropTabs();
+        renderCategories();
+        renderResults();
+      }
+      return;
+    }
+
+    const altToggleBtn = e.target.closest('[data-toggle-alt]');
+    if (altToggleBtn) {
+      const key = altToggleBtn.dataset.toggleAlt;
+      if (openAlternativesSet.has(key)) openAlternativesSet.delete(key);
+      else openAlternativesSet.add(key);
+      renderResults();
+      return;
+    }
+
+    const jumpProdBtn = e.target.closest('[data-jump-product]');
+    if (jumpProdBtn) {
+      const targetName = jumpProdBtn.dataset.jumpProduct;
+      inStockOnly = true;
+      renderSafetyChips();
+      setSearchQuery(targetName, true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -182,9 +362,12 @@ export function createSearchTab(ctx) {
     if (codeBtn) {
       const code = codeBtn.dataset.copyCode;
       if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(code).then(() => {
-          ctx.toast(`Kód ${code} zkopírován do schránky`, 'success');
-        }).catch(() => {});
+        navigator.clipboard
+          .writeText(code)
+          .then(() => {
+            ctx.toast(`Kód ${code} zkopírován do schránky`, 'success');
+          })
+          .catch(() => {});
       }
       return;
     }
@@ -231,8 +414,215 @@ export function createSearchTab(ctx) {
     ctx.toast('Nastavení balení uloženo', 'success');
   });
 
+  function resetAgroFilters() {
+    selectedCrop = 'all';
+    selectedSubstances = [];
+    inStockOnly = true;
+    phoAllowedOnly = false;
+    beeSafeOnly = false;
+    selectedCategory = 'all';
+    visibleLimit = PAGE_SIZE;
+    render();
+  }
+
   function getScopedItems() {
     return filterByWarehouse(ctx.state.items, ctx.state.prefs.warehouseFilter);
+  }
+
+  function getScopedStockProducts() {
+    return groupByProduct(getScopedItems());
+  }
+
+  /**
+   * Vrátí kandidátní produkty podle stavu přepínače „Pouze skladem (> 0 MJ)“.
+   * Pokud je vypnutý, doplní ke skladovým položkám i ostatní registrované přípravky z ÚKZÚZ (s 0 j. skladem),
+   * aby obchodník mohl najít i přípravek, který skladem není, a jedním klikem k němu vyhledat náhradu skladem.
+   */
+  function getBaseProductsPool() {
+    const stockProducts = getScopedStockProducts();
+    if (inStockOnly) {
+      return stockProducts;
+    }
+
+    const matchedPorNames = new Set();
+    for (const sp of stockProducts) {
+      if (sp.por?.name) matchedPorNames.add(normalizeText(sp.por.name));
+      matchedPorNames.add(normalizeText(sp.name));
+    }
+
+    const combined = [...stockProducts];
+    for (const por of ctx.state.porItems || []) {
+      const pNorm = normalizeText(por.name);
+      if (matchedPorNames.has(pNorm)) continue;
+      const catInfo = parseCategory(por.fn || 'CHEMIE');
+      const ulText = (por.ul || []).map((u) => `${u.n} ${u.c || ''} ${u.g || ''}`).join(' ');
+      const cropsText = (por.crops || []).join(' ');
+      combined.push({
+        code: por.reg ? `POR-${por.reg}` : `POR-${por.id || pNorm}`,
+        name: por.name,
+        cat: catInfo,
+        por,
+        totalQty: 0,
+        batches: [],
+        isCatalogOnly: true,
+        _search: normalizeText(
+          `${por.name} ${por.reg || ''} ${por.fn || ''} ${ulText} ${(por.groups || []).join(' ')} ${cropsText}`
+        ),
+      });
+    }
+    return combined;
+  }
+
+  function productMatchesAgroFilters(prod, { ignoreCrop = false, ignoreCat = false } = {}) {
+    if (inStockOnly && prod.totalQty <= 0) return false;
+    if (!ignoreCat && selectedCategory !== 'all' && prod.cat?.key !== selectedCategory) return false;
+
+    const safetyOpts = {
+      cropCategory: ignoreCrop ? 'all' : selectedCrop,
+      phoAllowedOnly,
+      beeSafeOnly,
+    };
+    if (!matchesPorSafetyAndCrop(prod.por, safetyOpts)) return false;
+    if (!matchesActiveSubstances(prod.por, selectedSubstances)) return false;
+    return true;
+  }
+
+  function productMatchesQuery(prod, qTrim) {
+    if (selectedExactName) {
+      return prod.name === selectedExactName;
+    }
+    if (!qTrim) return true;
+    const tokens = normalizeText(qTrim).split(/\s+/).filter(Boolean);
+    if (prod.isCatalogOnly) {
+      return tokens.every((t) => prod._search.includes(t));
+    }
+    return prod.batches.some((b) => tokens.every((t) => b._search.includes(t)));
+  }
+
+  /**
+   * Seznam všech účinných látek s počtem odpovídajících přípravků pro našeptávač/multiselect.
+   */
+  function getAvailableActiveSubstances() {
+    const pool = getBaseProductsPool();
+    const counts = new Map();
+    const displayNames = new Map();
+
+    for (const prod of pool) {
+      if (!prod.por?.ul?.length) continue;
+      if (!matchesPorSafetyAndCrop(prod.por, { cropCategory: selectedCrop, phoAllowedOnly, beeSafeOnly })) {
+        continue;
+      }
+      for (const u of prod.por.ul) {
+        const norm = normalizeText(u.n);
+        if (!norm) continue;
+        if (!displayNames.has(norm)) displayNames.set(norm, u.n);
+        counts.set(norm, (counts.get(norm) || 0) + 1);
+      }
+    }
+
+    return Array.from(counts.entries())
+      .map(([norm, count]) => ({ norm, name: displayNames.get(norm), count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'cs'));
+  }
+
+  function renderUlDropdown() {
+    const allUl = getAvailableActiveSubstances();
+    const qNorm = normalizeText(ulSearchQuery);
+    const filtered = qNorm
+      ? allUl.filter((item) => item.norm.includes(qNorm))
+      : allUl.slice(0, 30);
+
+    if (!filtered.length) {
+      ulDropdownEl.innerHTML = `<div style="padding:10px 12px;font-size:0.82rem;color:var(--ink-muted);">Žádná účinná látka neodpovídá „${escapeHtml(ulSearchQuery)}“</div>`;
+      ulDropdownEl.hidden = false;
+      return;
+    }
+
+    ulDropdownEl.innerHTML = filtered
+      .slice(0, 35)
+      .map((item) => {
+        const isSelected = selectedSubstances.some((s) => normalizeText(s) === item.norm);
+        return `
+          <button type="button" class="ac-item ${isSelected ? 'is-selected' : ''}" role="option" aria-selected="${isSelected}" data-ul-pick="${escapeHtml(item.name)}">
+            <div class="ac-item-name">${isSelected ? '✓ ' : ''}${escapeHtml(item.name)}</div>
+            <span class="ac-item-qty">${item.count} přípr.</span>
+          </button>
+        `;
+      })
+      .join('');
+    ulDropdownEl.hidden = false;
+  }
+
+  function renderSelectedUlTags() {
+    const hasAgroReset =
+      selectedCrop !== 'all' ||
+      selectedSubstances.length > 0 ||
+      !inStockOnly ||
+      phoAllowedOnly ||
+      beeSafeOnly;
+
+    if (!selectedSubstances.length && !hasAgroReset) {
+      ulTagsEl.hidden = true;
+      ulTagsEl.innerHTML = '';
+      return;
+    }
+
+    const tagsHtml = selectedSubstances
+      .map(
+        (ul) => `
+        <span class="ul-active-tag">
+          <span>🧪 ${escapeHtml(ul)}</span>
+          <button type="button" class="ul-tag-remove" data-ul-remove="${escapeHtml(ul)}" aria-label="Odebrat ${escapeHtml(ul)}">✕</button>
+        </span>
+      `
+      )
+      .join('');
+
+    const resetBtn = hasAgroReset
+      ? `<button type="button" class="btn btn-ghost btn-sm" data-reset-all-agro="1">↺ Resetovat filtry</button>`
+      : '';
+
+    ulTagsEl.innerHTML = `${tagsHtml}${resetBtn}`;
+    ulTagsEl.hidden = false;
+  }
+
+  function renderCropTabs() {
+    const pool = getBaseProductsPool();
+    const counts = new Map();
+    let totalMatching = 0;
+
+    for (const prod of pool) {
+      if (!productMatchesAgroFilters(prod, { ignoreCrop: true, ignoreCat: true })) continue;
+      totalMatching++;
+      for (const cg of prod.por?.cg || []) {
+        counts.set(cg, (counts.get(cg) || 0) + 1);
+      }
+    }
+
+    cropTabsEl.innerHTML = CROP_CATEGORIES.map((c) => {
+      const cnt = c.key === 'all' ? totalMatching : counts.get(c.key) || 0;
+      const active = selectedCrop === c.key;
+      return `
+        <button type="button" class="chip crop-tab-chip ${active ? 'is-active' : ''}" data-crop="${c.key}" role="tab" aria-selected="${active}">
+          <span>${c.icon} ${escapeHtml(c.label)}</span>
+          <span class="chip-count">${cnt}</span>
+        </button>
+      `;
+    }).join('');
+  }
+
+  function renderSafetyChips() {
+    safetyChipsEl.innerHTML = `
+      <button type="button" class="chip safety-chip ${inStockOnly ? 'is-active' : ''}" data-safety="stock" aria-pressed="${inStockOnly}" title="Zobrazit pouze položky skladem (> 0 MJ). Vypnutím zobrazíš celý katalog ÚKZÚZ.">
+        <span>📦 Pouze skladem (&gt; 0 MJ)</span>
+      </button>
+      <button type="button" class="chip safety-chip is-pho-safe ${phoAllowedOnly ? 'is-active' : ''}" data-safety="pho" aria-pressed="${phoAllowedOnly}" title="Skryje přípravky vyloučené v ochranném pásmu II. stupně vod (OP II. st.)">
+        <span>💧 Povolené v OP II. st. (vody)</span>
+      </button>
+      <button type="button" class="chip safety-chip is-bee-safe ${beeSafeOnly ? 'is-active' : ''}" data-safety="bees" aria-pressed="${beeSafeOnly}" title="Skryje přípravky nebezpečné a zvlášť nebezpečné pro včely (ZNV, NV, SPe8)">
+        <span>🐝 Bezpečné pro včely</span>
+      </button>
+    `;
   }
 
   function renderAutocomplete() {
@@ -241,10 +631,10 @@ export function createSearchTab(ctx) {
       acEl.hidden = true;
       return;
     }
-    const tokens = qNorm.split(/\s+/).filter(Boolean);
-    const scoped = getScopedItems();
-    const matches = scoped.filter((item) => tokens.every((t) => item._search.includes(t)));
-    const products = groupByProduct(matches).slice(0, 8);
+    const pool = getBaseProductsPool().filter(
+      (p) => productMatchesAgroFilters(p) && productMatchesQuery(p, query)
+    );
+    const products = pool.slice(0, 8);
 
     if (products.length < 2) {
       acEl.hidden = true;
@@ -257,9 +647,9 @@ export function createSearchTab(ctx) {
       <button type="button" class="ac-item" role="option" data-ac-name="${escapeHtml(p.name)}">
         <div>
           <div class="ac-item-name">${escapeHtml(p.name)}</div>
-          <div class="ac-item-meta">${escapeHtml(p.code)} · ${p.cat.icon} ${escapeHtml(p.cat.label)} · ${p.batches.length} ${p.batches.length === 1 ? 'šarže' : p.batches.length <= 4 ? 'šarže' : 'šarží'}</div>
+          <div class="ac-item-meta">${escapeHtml(p.code)} · ${p.cat.icon} ${escapeHtml(p.cat.label)}${p.por?.ul?.length ? ` · ${escapeHtml(p.por.ul.map((u) => u.n).join(' + '))}` : ''}</div>
         </div>
-        <span class="ac-item-qty">${formatQty(p.totalQty)} j.</span>
+        <span class="ac-item-qty">${p.totalQty > 0 ? `${formatQty(p.totalQty)} j.` : '0 j.'}</span>
       </button>
     `
       )
@@ -268,33 +658,25 @@ export function createSearchTab(ctx) {
   }
 
   function renderCategories() {
-    const scoped = getScopedItems();
+    const pool = getBaseProductsPool().filter((p) =>
+      productMatchesAgroFilters(p, { ignoreCat: true })
+    );
     const counts = new Map();
     const labels = new Map();
-    const seenProdPerCat = new Map();
 
-    for (const item of scoped) {
-      const k = item._cat.key;
-      if (!seenProdPerCat.has(k)) {
-        seenProdPerCat.set(k, new Set());
-        labels.set(k, item._cat);
-      }
-      seenProdPerCat.get(k).add(item.c);
+    for (const prod of pool) {
+      const k = prod.cat.key;
+      labels.set(k, prod.cat);
+      counts.set(k, (counts.get(k) || 0) + 1);
     }
 
-    for (const [k, set] of seenProdPerCat.entries()) {
-      counts.set(k, set.size);
-    }
-
-    const totalProds = new Set(scoped.map((i) => i.c)).size;
     const sortedCats = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-
     if (selectedCategory !== 'all' && !counts.has(selectedCategory)) {
       selectedCategory = 'all';
     }
 
     const chips = [
-      `<button type="button" class="chip ${selectedCategory === 'all' ? 'is-active' : ''}" data-cat="all">Vše <span class="chip-count">${totalProds}</span></button>`,
+      `<button type="button" class="chip ${selectedCategory === 'all' ? 'is-active' : ''}" data-cat="all">Všechny typy <span class="chip-count">${pool.length}</span></button>`,
       ...sortedCats.map(([key, cnt]) => {
         const info = labels.get(key);
         return `<button type="button" class="chip ${selectedCategory === key ? 'is-active' : ''}" data-cat="${escapeHtml(key)}">${info.icon} ${escapeHtml(info.label)} <span class="chip-count">${cnt}</span></button>`;
@@ -305,8 +687,7 @@ export function createSearchTab(ctx) {
   }
 
   function renderResults() {
-    const scoped = getScopedItems();
-    if (ctx.state.items.length === 0) {
+    if (ctx.state.items.length === 0 && (!ctx.state.porItems || ctx.state.porItems.length === 0)) {
       resultsEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">📦</div>
@@ -318,7 +699,16 @@ export function createSearchTab(ctx) {
     }
 
     const qTrim = query.trim();
-    const hasFilter = Boolean(qTrim || selectedExactName || selectedCategory !== 'all');
+    const hasFilter = Boolean(
+      qTrim ||
+        selectedExactName ||
+        selectedCategory !== 'all' ||
+        selectedCrop !== 'all' ||
+        selectedSubstances.length > 0 ||
+        !inStockOnly ||
+        phoAllowedOnly ||
+        beeSafeOnly
+    );
 
     if (!hasFilter) {
       const recents = loadRecentSearches();
@@ -339,34 +729,28 @@ export function createSearchTab(ctx) {
       resultsEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">🔎</div>
-          <h3>Rychlé vyhledávání ve skladu</h3>
-          <p>Napiš název přípravku, kód, šarži nebo více slov najednou (např. <strong>Folpan Valmez</strong>, <strong>Bizon 151BO</strong>), případně vyber kategorii výše.</p>
+          <h3>Katalog přípravků, agronomické filtry &amp; náhrady skladem</h3>
+          <p>Napiš název přípravku, účinnou látku nebo šarži, případně vyber <strong>plodinu stříkání</strong> (Obiloviny, Řepka, Réva…), <strong>účinnou látku</strong> nebo přepni <strong>Povolené v OP II. st. / Bezpečné pro včely</strong>.</p>
         </div>
         ${recentHtml}
       `;
       return;
     }
 
-    let filtered = scoped;
-    if (selectedCategory !== 'all') {
-      filtered = filtered.filter((i) => i._cat.key === selectedCategory);
-    }
-
-    if (selectedExactName) {
-      filtered = filtered.filter((i) => i.n === selectedExactName);
-    } else if (qTrim) {
-      const tokens = normalizeText(qTrim).split(/\s+/).filter(Boolean);
-      filtered = filtered.filter((item) => tokens.every((t) => item._search.includes(t)));
-    }
-
-    const products = groupByProduct(filtered);
+    const pool = getBaseProductsPool();
+    const products = pool.filter(
+      (prod) => productMatchesAgroFilters(prod) && productMatchesQuery(prod, qTrim)
+    );
 
     if (products.length === 0) {
       resultsEl.innerHTML = `
         <div class="empty-state">
           <div class="empty-state-icon">🔍</div>
           <h3>Nic nebylo nalezeno</h3>
-          <p>Pro hledání <strong>„${escapeHtml(qTrim || selectedCategory)}“</strong> není na vybraném skladu žádný zůstatek.</p>
+          <p>Zvolené kombinaci filtrů neodpovídá žádný přípravek${inStockOnly ? ' skladem' : ''}.</p>
+          <div style="margin-top: 12px;">
+            <button type="button" class="btn btn-sm" data-reset-all-agro="1">↺ Resetovat agronomické filtry</button>
+          </div>
         </div>
       `;
       return;
@@ -377,10 +761,11 @@ export function createSearchTab(ctx) {
     const remaining = products.length - shown.length;
     const todayMs = getTodayMidnightMs();
     const customPacks = ctx.state.customPacks;
+    const scopedStockProducts = getScopedStockProducts();
 
     const toolbarHtml = `
       <div class="results-bar">
-        <span>Nalezeno produktů: <strong>${products.length}</strong>${remaining > 0 ? ` (zobrazeno ${shown.length})` : ''}</span>
+        <span>Nalezeno přípravků: <strong>${products.length}</strong>${remaining > 0 ? ` (zobrazeno ${shown.length})` : ''}</span>
         <div class="sort-pills" role="group" aria-label="Řazení šarží">
           <button type="button" class="sort-pill ${batchSort === 'qty' ? 'is-active' : ''}" data-batch-sort="qty">Dle množství</button>
           <button type="button" class="sort-pill ${batchSort === 'fefo' ? 'is-active' : ''}" data-batch-sort="fefo">FEFO (expirace)</button>
@@ -388,18 +773,53 @@ export function createSearchTab(ctx) {
       </div>
     `;
 
-    const cardsHtml = shown.map((prod) => renderProductCard(prod, batchSort, todayMs, customPacks)).join('');
+    const cardsHtml = shown
+      .map((prod) =>
+        renderProductCard(prod, batchSort, todayMs, customPacks, scopedStockProducts)
+      )
+      .join('');
     const loadMoreHtml =
       remaining > 0
-        ? `<button type="button" id="search-load-more" class="btn btn-block">Zobrazit další produkty (zbývá ${remaining})</button>`
+        ? `<button type="button" id="search-load-more" class="btn btn-block">Zobrazit další přípravky (zbývá ${remaining})</button>`
         : '';
 
     resultsEl.innerHTML = toolbarHtml + cardsHtml + loadMoreHtml;
   }
 
-  function renderProductCard(prod, batchSort, todayMs, customPacks) {
-    const packText = prepocetNaBaleni(prod.code, prod.name, prod.totalQty, customPacks);
-    const palletText = paletovaKalkulacka(prod.code, prod.name, prod.totalQty, customPacks);
+  /**
+   * Vykreslí výrazné barevné bezpečnostní odznaky (OP II. st. a Včely: ZNV / NV / SPe8) přímo v hlavičce karty.
+   */
+  function renderHeaderHazardBadges(por) {
+    if (!por) return '';
+    const badges = [];
+
+    if (por.pho?.restricted) {
+      badges.push(
+        `<span class="hazard-badge is-pho-warn" title="${escapeHtml(por.pho.text || 'Vyloučeno v OP II. st.')}">⚠️ ${escapeHtml(por.pho.code || 'OP II. st.')}</span>`
+      );
+    }
+
+    const bCode = String(por.bees?.code || 'OK').toUpperCase();
+    if (bCode === 'ZNV') {
+      badges.push(
+        `<span class="hazard-badge is-bee-danger" title="${escapeHtml(por.bees.text || '')}">🐝 Včely: ZNV</span>`
+      );
+    } else if (bCode === 'NV' || bCode === 'SPE8') {
+      badges.push(
+        `<span class="hazard-badge is-bee-warn" title="${escapeHtml(por.bees.text || '')}">🐝 Včely: ${escapeHtml(por.bees.code)}</span>`
+      );
+    }
+
+    return badges.join('');
+  }
+
+  function renderProductCard(prod, batchSort, todayMs, customPacks, scopedStockProducts) {
+    const packText = prod.totalQty > 0
+      ? prepocetNaBaleni(prod.code, prod.name, prod.totalQty, customPacks)
+      : 'Není skladem (katalog ÚKZÚZ)';
+    const palletText = prod.totalQty > 0
+      ? paletovaKalkulacka(prod.code, prod.name, prod.totalQty, customPacks)
+      : null;
 
     // FEFO: nejbližší šarže s datem expirace
     const withExp = prod.batches
@@ -450,49 +870,62 @@ export function createSearchTab(ctx) {
       return b.q - a.q;
     });
 
-    const batchesHtml = sortedBatches
-      .map((b) => {
-        const bPack = prepocetNaBaleni(prod.code, prod.name, b.q, customPacks);
-        const expInfo = evaluateExpiration(b.exp, todayMs);
-        const recDate = formatIsoDateCz(b.rec);
-        return `
-          <div class="batch-row ${expInfo.status === 'expired' ? 'is-expired' : ''}">
-            <div class="batch-top">
-              <span class="batch-loc">${escapeHtml(b._locDisplay)}</span>
-              <span class="batch-qty num">${formatQty(b.q)} j. <span class="batch-qty-pack">(${escapeHtml(bPack)})</span></span>
-            </div>
-            <div class="batch-meta">
-              <div class="batch-meta-items">
-                <span>Šarže: <strong class="mono">${escapeHtml(b.lot)}</strong></span>
-                <span class="exp-pill is-${expInfo.status}">${escapeHtml(expInfo.badge)}</span>
-                <span>Příjem: <span class="num">${recDate}</span></span>
-              </div>
-              <div class="batch-actions">
-                <button type="button" class="batch-action-link" data-report-idx="${b._idx}" title="Nahlásit nesrovnalost k této šarži">⚠️ Hlásit</button>
-                <button type="button" class="batch-action-link" data-inv-product="${escapeHtml(prod.name)}" data-inv-wh="${escapeHtml(b.wh)}" title="Otevřít v inventuře">📋 Inventura</button>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
+    const batchesHtml = sortedBatches.length
+      ? `
+        <div class="batch-section-label">Rozpis po lokacích a šaržích (${prod.batches.length})</div>
+        <div class="batch-list">
+          ${sortedBatches
+            .map((b) => {
+              const bPack = prepocetNaBaleni(prod.code, prod.name, b.q, customPacks);
+              const expInfo = evaluateExpiration(b.exp, todayMs);
+              const recDate = formatIsoDateCz(b.rec);
+              return `
+                <div class="batch-row ${expInfo.status === 'expired' ? 'is-expired' : ''}">
+                  <div class="batch-top">
+                    <span class="batch-loc">${escapeHtml(b._locDisplay)}</span>
+                    <span class="batch-qty num">${formatQty(b.q)} j. <span class="batch-qty-pack">(${escapeHtml(bPack)})</span></span>
+                  </div>
+                  <div class="batch-meta">
+                    <div class="batch-meta-items">
+                      <span>Šarže: <strong class="mono">${escapeHtml(b.lot)}</strong></span>
+                      <span class="exp-pill is-${expInfo.status}">${escapeHtml(expInfo.badge)}</span>
+                      <span>Příjem: <span class="num">${recDate}</span></span>
+                    </div>
+                    <div class="batch-actions">
+                      <button type="button" class="batch-action-link" data-report-idx="${b._idx}" title="Nahlásit nesrovnalost k této šarži">⚠️ Hlásit</button>
+                      <button type="button" class="batch-action-link" data-inv-product="${escapeHtml(prod.name)}" data-inv-wh="${escapeHtml(b.wh)}" title="Otevřít v inventuře">📋 Inventura</button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      `
+      : '';
 
     const defaultSize = ziskejKrokBaleni(prod.code, prod.name, customPacks);
     const hasCustom = Boolean(customPacks[prod.code]);
     const defaultObal = customPacks[prod.code]?.obal || 'automaticky';
-    const porHtml = renderPorPanel(prod.por);
+    const hazardBadgesHtml = renderHeaderHazardBadges(prod.por);
+    const porHtml = renderPorPanel(prod, scopedStockProducts, customPacks);
 
     return `
-      <article class="product-card">
+      <article class="product-card ${prod.totalQty <= 0 ? 'is-out-of-stock' : ''}">
         <div class="product-head">
           <div>
             <h2 class="product-name">${escapeHtml(prod.name)}</h2>
             <div class="product-subrow">
-              <button type="button" class="code-chip" data-copy-code="${escapeHtml(prod.code)}" title="Kliknutím zkopíruješ kód">
-                <span>${escapeHtml(prod.code)}</span>
-                <span aria-hidden="true">⧉</span>
-              </button>
+              ${
+                !prod.isCatalogOnly
+                  ? `<button type="button" class="code-chip" data-copy-code="${escapeHtml(prod.code)}" title="Kliknutím zkopíruješ kód">
+                       <span>${escapeHtml(prod.code)}</span>
+                       <span aria-hidden="true">⧉</span>
+                     </button>`
+                  : ''
+              }
               ${prod.por?.reg && prod.por.reg !== '-' ? `<span class="code-chip" title="Registrační číslo ÚKZÚZ">ÚKZÚZ: ${escapeHtml(prod.por.reg)}</span>` : ''}
+              ${hazardBadgesHtml}
               ${prod.por?.eco ? '<span class="exp-pill is-ok">🌱 EKO</span>' : ''}
               ${hasCustom ? '<span class="exp-pill is-ok">Vlastní balení</span>' : ''}
             </div>
@@ -503,7 +936,7 @@ export function createSearchTab(ctx) {
         <div class="stock-metrics">
           <div class="metric-tile">
             <div class="metric-label">Skladem celkem</div>
-            <div class="metric-value num">${formatQty(prod.totalQty)} j.</div>
+            <div class="metric-value num" style="${prod.totalQty <= 0 ? 'color:var(--ink-muted)' : ''}">${formatQty(prod.totalQty)} j.</div>
           </div>
           <div class="metric-tile">
             <div class="metric-label">V přepočtu</div>
@@ -514,34 +947,37 @@ export function createSearchTab(ctx) {
         ${palletHtml}
         ${fefoHtml}
         ${porHtml}
+        ${batchesHtml}
 
-        <div class="batch-section-label">Rozpis po lokacích a šaržích (${prod.batches.length})</div>
-        <div class="batch-list">${batchesHtml}</div>
-
-        <details class="pack-details">
-          <summary>⚙️ Upravit přepočet balení pro tento produkt</summary>
-          <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
-            <div class="field">
-              <label>Velikost 1 balení (l / kg)</label>
-              <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
-            </div>
-            <div class="field">
-              <label>Typ obalu</label>
-              <select class="select" name="obal">
-                ${PACKAGING_TYPES.map((opt) => `<option value="${opt.value}" ${opt.value === defaultObal ? 'selected' : ''}>${opt.label}</option>`).join('')}
-              </select>
-            </div>
-            <div class="pack-form-actions">
-              <button type="submit" class="btn btn-primary btn-sm">💾 Uložit pro produkt</button>
-              ${hasCustom ? `<button type="button" class="btn btn-sm" data-reset-pack="${escapeHtml(prod.code)}">Obnovit automatiku</button>` : ''}
-            </div>
-          </form>
-        </details>
+        ${
+          !prod.isCatalogOnly
+            ? `<details class="pack-details">
+                 <summary>⚙️ Upravit přepočet balení pro tento produkt</summary>
+                 <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
+                   <div class="field">
+                     <label>Velikost 1 balení (l / kg)</label>
+                     <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
+                   </div>
+                   <div class="field">
+                     <label>Typ obalu</label>
+                     <select class="select" name="obal">
+                       ${PACKAGING_TYPES.map((opt) => `<option value="${opt.value}" ${opt.value === defaultObal ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                     </select>
+                   </div>
+                   <div class="pack-form-actions">
+                     <button type="submit" class="btn btn-primary btn-sm">💾 Uložit pro produkt</button>
+                     ${hasCustom ? `<button type="button" class="btn btn-sm" data-reset-pack="${escapeHtml(prod.code)}">Obnovit automatiku</button>` : ''}
+                   </div>
+                 </form>
+               </details>`
+            : ''
+        }
       </article>
     `;
   }
 
-  function renderPorPanel(por) {
+  function renderPorPanel(prod, scopedStockProducts, customPacks) {
+    const por = prod.por;
     if (!por) return '';
 
     const isStockUse = por.status === 'Do spotřebování zásob';
@@ -559,55 +995,117 @@ export function createSearchTab(ctx) {
     }
 
     const phoRestricted = Boolean(por.pho?.restricted);
-    const phoClass = phoRestricted ? 'is-pho-restricted' : 'is-ok';
-    const phoBadge = phoRestricted
-      ? `💧 PHO: ${escapeHtml(por.pho.code || 'Omezení')}`
-      : '💧 PHO: Bez omezení';
+    const phoBadgeHtml = phoRestricted
+      ? `<span class="hazard-badge is-pho-warn">💧 PHO: ${escapeHtml(por.pho.code || 'OP II. st.')}</span>`
+      : `<span class="exp-pill is-ok">💧 PHO: Povolen (- / - -)</span>`;
 
-    const beeLevel = por.bees?.level || 'ok';
-    const beeClass =
-      beeLevel === 'danger'
-        ? 'is-expired'
-        : beeLevel === 'warn'
-          ? 'is-warning'
-          : beeLevel === 'info'
-            ? 'is-pho-restricted'
-            : 'is-ok';
-    const beeBadge =
-      beeLevel === 'danger'
-        ? '🐝 ZNV — Zvlášť nebezpečný pro včely'
-        : beeLevel === 'warn'
-          ? '🐝 NV — Nebezpečný pro včely'
-          : beeLevel === 'info'
-            ? '🐝 DO — Opylovači'
-            : '🐝 Včely: Bez označení';
+    const bCode = String(por.bees?.code || 'OK').toUpperCase();
+    let beeBadgeHtml = `<span class="exp-pill is-ok">🐝 Včely: Bez omezení (- -)</span>`;
+    if (bCode === 'ZNV') {
+      beeBadgeHtml = `<span class="hazard-badge is-bee-danger">🐝 Včely: ZNV (zvlášť nebezpečný)</span>`;
+    } else if (bCode === 'NV' || bCode === 'SPE8') {
+      beeBadgeHtml = `<span class="hazard-badge is-bee-warn">🐝 Včely: ${escapeHtml(por.bees.code)} (nebezpečný)</span>`;
+    } else if (bCode === 'DO') {
+      beeBadgeHtml = `<span class="exp-pill is-pho-restricted">🐝 Včely: DO (opylovači)</span>`;
+    }
 
     const ulHtml = por.ul?.length
       ? `<div class="por-row">
            <span class="por-label">Účinné látky:</span>
            <span class="por-val">${por.ul
-             .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+             .map(
+               (u) =>
+                 `<button type="button" class="ul-inline-btn" data-filter-ul="${escapeHtml(u.n)}" title="Filtrovat přípravky s účinnou látkou ${escapeHtml(u.n)}"><strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}</button>`
+             )
              .join(' · ')}</span>
          </div>`
       : '';
 
     const groupsHtml = por.groups?.length
       ? `<div class="por-row">
-           <span class="por-label">Chemická skupina:</span>
+           <span class="por-label">Skupina (MoA):</span>
            <span class="por-val">${escapeHtml(por.groups.join(', '))}</span>
          </div>`
       : '';
 
-    const showDetails = phoRestricted || beeLevel !== 'ok';
-    const detailsHtml = showDetails
+    // Kategorie plodin + detail plodin a dávkování
+    const cgChips = (por.cg || [])
+      .map((k) => `<span class="crop-mini-pill">${escapeHtml(CROP_CATEGORY_LABELS[k] || k)}</span>`)
+      .join('');
+
+    const cropsHtml = cgChips
+      ? `<div class="por-row por-crops-row">
+           <span class="por-label">Plodiny:</span>
+           <span class="por-crop-pills">${cgChips}</span>
+         </div>`
+      : '';
+
+    const usesList = por.uses || [];
+    const usesHtml = usesList.length
       ? `<details class="por-legal-details">
-           <summary>Zobrazit přesné znění omezení PHO a rizika pro včely</summary>
+           <summary>📋 Registrované plodiny a dávkování (${usesList.length})</summary>
+           <div class="por-uses-table">
+             ${usesList
+               .map(
+                 (u) => `
+               <div class="por-use-item">
+                 <div class="por-use-top">
+                   <strong class="por-use-crop">${escapeHtml(u.c)}</strong>
+                   ${u.d ? `<span class="por-use-dose mono">${escapeHtml(u.d)}</span>` : ''}
+                 </div>
+                 ${
+                   u.p || u.ol
+                     ? `<div class="por-use-sub">
+                          ${u.p ? `<span>ŠO: ${escapeHtml(u.p)}</span>` : ''}
+                          ${u.ol ? `<span>OL: <strong>${escapeHtml(u.ol)}</strong></span>` : ''}
+                        </div>`
+                     : ''
+                 }
+               </div>
+             `
+               )
+               .join('')}
+           </div>
+         </details>`
+      : '';
+
+    const showLegalDetails = phoRestricted || bCode !== 'OK';
+    const legalDetailsHtml = showLegalDetails
+      ? `<details class="por-legal-details">
+           <summary>⚖️ Přesné znění omezení PHO a rizika pro včely</summary>
            <div class="por-legal-body">
              <div><strong>Ochranná pásma vod (PHO):</strong> ${escapeHtml(por.pho?.text || 'Bez omezení')}</div>
              <div><strong>Riziko pro včely:</strong> ${escapeHtml(por.bees?.text || 'Bez označení')}</div>
            </div>
          </details>`
       : '';
+
+    // Výpočet alternativ skladem při respektování aktivních filtrů obchodníka
+    const altKey = `${prod.code}||${por.name}`;
+    const isAltOpen = openAlternativesSet.has(altKey);
+    const activeFilters = {
+      cropCategory: selectedCrop,
+      phoAllowedOnly,
+      beeSafeOnly,
+    };
+    const { exactSubstitutes, groupAlternatives } = findStockAlternatives(
+      por,
+      prod.isCatalogOnly ? null : prod.code,
+      scopedStockProducts,
+      activeFilters
+    );
+    const totalAlts = exactSubstitutes.length + groupAlternatives.length;
+
+    let altDrawerHtml = '';
+    if (isAltOpen) {
+      altDrawerHtml = renderAlternativesDrawer(
+        prod,
+        exactSubstitutes,
+        groupAlternatives,
+        activeFilters,
+        customPacks
+      );
+    }
 
     return `
       <div class="por-panel ${isStockUse ? 'is-stock-use' : ''}">
@@ -617,12 +1115,125 @@ export function createSearchTab(ctx) {
         </div>
         ${datesParts.length ? `<div class="por-dates">${datesParts.join(' &nbsp;|&nbsp; ')}</div>` : ''}
         <div class="por-pills">
-          <span class="exp-pill ${phoClass}">${phoBadge}</span>
-          <span class="exp-pill ${beeClass}">${beeBadge}</span>
+          ${phoBadgeHtml}
+          ${beeBadgeHtml}
         </div>
         ${ulHtml}
         ${groupsHtml}
-        ${detailsHtml}
+        ${cropsHtml}
+        ${usesHtml}
+        ${legalDetailsHtml}
+
+        <div class="por-alt-bar">
+          <button type="button" class="btn btn-sm por-alt-btn ${isAltOpen ? 'is-active' : ''}" data-toggle-alt="${escapeHtml(altKey)}">
+            <span>🔄 Alternativy skladem</span>
+            <span class="alt-count-badge">${totalAlts}</span>
+          </button>
+        </div>
+        ${altDrawerHtml}
+      </div>
+    `;
+  }
+
+  function renderAlternativesDrawer(prod, exactSubstitutes, groupAlternatives, activeFilters, customPacks) {
+    const activeFilterNotes = [];
+    if (activeFilters.cropCategory && activeFilters.cropCategory !== 'all') {
+      activeFilterNotes.push(CROP_CATEGORY_LABELS[activeFilters.cropCategory] || activeFilters.cropCategory);
+    }
+    if (activeFilters.phoAllowedOnly) activeFilterNotes.push('💧 Povolené v OP II. st.');
+    if (activeFilters.beeSafeOnly) activeFilterNotes.push('🐝 Bezpečné pro včely');
+
+    const filterNoteHtml = activeFilterNotes.length
+      ? `<div class="alt-filter-note">Respektovány aktivní filtry: <strong>${activeFilterNotes.map(escapeHtml).join(' · ')}</strong></div>`
+      : '';
+
+    if (!exactSubstitutes.length && !groupAlternatives.length) {
+      return `
+        <div class="alt-drawer">
+          ${filterNoteHtml}
+          <div class="alt-empty">Pro tento přípravek momentálně není na vybraném skladu žádná dostupná alternativa (&gt; 0 MJ) vyhovující zvoleným filtrům.</div>
+        </div>
+      `;
+    }
+
+    const renderAltItem = (cand, detailLineHtml) => {
+      const pack = prepocetNaBaleni(cand.code, cand.name, cand.totalQty, customPacks);
+      const badges = renderHeaderHazardBadges(cand.por);
+      const locs = Array.from(new Set(cand.batches.map((b) => b._locDisplay))).join(', ');
+      return `
+        <div class="alt-card">
+          <div class="alt-card-top">
+            <div>
+              <button type="button" class="alt-product-link" data-jump-product="${escapeHtml(cand.name)}">
+                ${escapeHtml(cand.name)} →
+              </button>
+              <div class="alt-card-sub">
+                <span class="mono">${escapeHtml(cand.code)}</span>
+                ${cand.por?.reg ? ` · ÚKZÚZ: <span class="mono">${escapeHtml(cand.por.reg)}</span>` : ''}
+                ${locs ? ` · ${escapeHtml(locs)}` : ''}
+              </div>
+            </div>
+            <div class="alt-qty-box">
+              <div class="alt-qty-val num">${formatQty(cand.totalQty)} j.</div>
+              <div class="alt-qty-pack">${escapeHtml(pack)}</div>
+            </div>
+          </div>
+          <div class="alt-detail-line">${detailLineHtml}</div>
+          ${badges ? `<div class="por-pills" style="margin-top:4px;">${badges}</div>` : ''}
+        </div>
+      `;
+    };
+
+    const exactHtml = exactSubstitutes.length
+      ? `
+        <div class="alt-group">
+          <div class="alt-group-title is-exact">✅ Přesná náhrada — stejná účinná látka (${exactSubstitutes.length})</div>
+          ${exactSubstitutes
+            .map(({ product: cand, sharedUl }) => {
+              const ulComp = (cand.por?.ul || [])
+                .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+                .join(' + ');
+              const targetComp = sharedUl
+                .filter((s) => s.targetConc && s.candConc && s.targetConc !== s.candConc)
+                .map((s) => `původně ${escapeHtml(s.targetConc)}`)
+                .join(', ');
+              return renderAltItem(
+                cand,
+                `Složení: ${ulComp}${targetComp ? ` <span class="alt-conc-diff">(${targetComp})</span>` : ' <span class="alt-conc-match">(shodná koncentrace)</span>'}`
+              );
+            })
+            .join('')}
+        </div>
+      `
+      : `<div class="alt-group"><div class="alt-group-title is-exact">✅ Přesná náhrada — stejná účinná látka (0 skladem)</div></div>`;
+
+    const groupHtml = groupAlternatives.length
+      ? `
+        <div class="alt-group">
+          <div class="alt-group-title is-moa">🧬 Alternativa ze stejné chemické skupiny + stejná plodina (${groupAlternatives.length})</div>
+          ${groupAlternatives
+            .map(({ product: cand, sharedGroups, sharedCrops }) => {
+              const ulComp = (cand.por?.ul || [])
+                .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+                .join(' + ');
+              const cropsLabels = sharedCrops
+                .map((c) => CROP_CATEGORY_LABELS[c] || c)
+                .join(', ');
+              return renderAltItem(
+                cand,
+                `Skupina: <strong>${escapeHtml(sharedGroups.join(', '))}</strong>${cropsLabels ? ` · Plodina: <strong>${escapeHtml(cropsLabels)}</strong>` : ''}<br>Účinná látka: ${ulComp}`
+              );
+            })
+            .join('')}
+        </div>
+      `
+      : '';
+
+    return `
+      <div class="alt-drawer">
+        ${filterNoteHtml}
+        ${exactHtml}
+        ${groupHtml}
       </div>
     `;
   }
@@ -699,6 +1310,9 @@ export function createSearchTab(ctx) {
   }
 
   function render() {
+    renderCropTabs();
+    renderSafetyChips();
+    renderSelectedUlTags();
     renderCategories();
     renderResults();
   }

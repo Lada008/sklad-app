@@ -39,10 +39,16 @@ Původní verze běžela na Streamlit Community Cloud, který se po nečinnosti 
 ### ⚠️ Hlášení nesrovnalostí
 - Předvyplnění jedním klepnutím z detailu šarže nebo výběrem ze skladu + rychlé štítky důvodů (*Rozbitý obal*, *Záměna šarže*, *Chybí fyzicky*…).
 
-### 🌿 Automatická denní synchronizace ÚKZÚZ (eAGRI POR)
-- **Denní plánovač (`.github/workflows/sync-ukzuz.yml`):** Každý den ve **03:05 SEČ** (a kdykoliv ručně přes `workflow_dispatch`) spustí `scripts/update_ukzuz.py`, stáhne aktuální otevřený export registru POR z portálu eAGRI (`https://mze.gov.cz/public/app/eagriapp/por/DataKeStazeni.aspx`), očistí data na **Platné rozhodnutí** a **Do spotřebování zásob** a uloží výstup do `public/data/por_aktualni.json`.
+### 🌿 Automatická denní synchronizace ÚKZÚZ (eAGRI POR) & agronomické filtry
+- **Denní plánovač (`.github/workflows/sync-ukzuz.yml`):** Každý den ve **03:05 SEČ** (a kdykoliv ručně přes `workflow_dispatch`) spustí `scripts/update_ukzuz.py`, stáhne aktuální otevřený export registru POR z portálu eAGRI (`https://mze.gov.cz/public/app/eagriapp/por/DataKeStazeni.aspx`), očistí data na **Platné rozhodnutí** a **Do spotřebování zásob** a sloučí listy *Rozhodnutí*, *Údaje*, *Účinné látky*, *Plodiny* a *Dávkování/Použití* do `public/data/por_aktualni.json`.
 - **Volitelné nahrání do Firebase Firestore:** Pokud je v GitHub Secrets nastaven `FIREBASE_SERVICE_ACCOUNT_JSON`, skript automaticky uloží data i do Firestore kolekce `ukzuz_registr`.
-- **Automatické párování se skladem z Business Central:** Aplikace při startu i při nahrání nového `sklad.xlsx` automaticky očistí názvy položek od velikostí balení (`5L`, `20 L`, `10 KG`, `bal.`…) a spáruje je s registrem ÚKZÚZ (zobrazí registrační číslo, platnost / termín spotřeby zásob, účinné látky s koncentrací, chemickou skupinu, PHO i riziko pro včely — a umožní podle nich vyhledávat).
+- **Chytrý panel filtrů pro obchodníka i sklad:**
+  - **Rychlé záložky podle plodin (stříkání):** *Vše | Obiloviny | Řepka | Réva vinná | Kukuřice | Brambory/Cukrovka | Sady/Zelenina | Ostatní* + rozklikávací tabulka konkrétních plodin, škodlivých organismů a dávek.
+  - **Multiselect účinných látek:** Našeptávač ze všech účinných látek v databázi (nebo kliknutí přímo na účinnou látku na kartě přípravku).
+  - **Bezpečnostní přepínače:** `📦 Pouze skladem (> 0 MJ)`, `💧 Povolené v OP II. st. (vody)` (skryje přípravky vyloučené v OP II. st.) a `🐝 Bezpečné pro včely` (skryje `ZNV`, `NV`, `SPe8`).
+  - **Výrazné varovné odznaky:** Červený/oranžový štítek `⚠️ OP II.st.` a `🐝 Včely: ZNV / NV / SPe8` přímo v hlavičce každého přípravku.
+- **Funkce „🔄 Alternativy skladem“ (náhrady):**
+  - Jedním kliknutím vyhledá dostupné položky z aktuálního skladu (`> 0 MJ`) a rozdělí je na **1. Přesná náhrada (stejná účinná látka + porovnání koncentrace)** a **2. Alternativa ze stejné chemické skupiny (stejný mechanismus účinku + stejná plodina)** při plném respektování aktivních filtrů (např. *Povolené v OP II. st.* nebo *Bezpečné pro včely*).
 - **Záložní ruční import:** V záložce **Data** zůstává tlačítko **„Nahrát soubor POR ručně“** (podporuje `.xlsx`, `.xml`, `.csv` i `.json`), kdyby ministerstvo v budoucnu změnilo URL exportu.
 
 ### ⚙️ Aktualizace dat z Business Central (`sklad.xlsx`)
