@@ -11,6 +11,7 @@
  */
 
 import {
+  buildWhatsAppUrl,
   detectBaseUnit,
   escapeHtml,
   formatIsoDateCz,
@@ -21,6 +22,7 @@ import {
   groupByProduct,
   normalizeText,
   prepocetNaBaleni,
+  shareOrCopyText,
   toCsv,
   triggerFileDownload,
   ziskejKrokBaleni,
@@ -168,7 +170,10 @@ export function createOrdersTab(ctx) {
         <div class="ord-items-box">
           <div class="ord-items-head">
             <span style="font-weight:800;font-size:0.88rem;">📦 Položky objednávky</span>
-            <span id="ord-cart-count" class="exp-pill is-ok">0 položek</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button type="button" id="ord-share-cart-btn" class="btn btn-sm" style="padding:3px 9px;min-height:28px;font-size:0.74rem;" title="Sdílet souhrn košíku zákazníkovi přes WhatsApp / SMS / e-mail">📤 Sdílet souhrn</button>
+              <span id="ord-cart-count" class="exp-pill is-ok">0 položek</span>
+            </div>
           </div>
 
           <div class="ord-item-picker" id="ord-item-picker-wrap">
@@ -864,6 +869,48 @@ export function createOrdersTab(ctx) {
     });
   }
 
+  function buildOrderShareText(o) {
+    const lines = [
+      `🛒 Objednávka ${o.id || ''}`.trim(),
+      `Odběratel: ${o.zakaznikNazev || '—'}${o.zakaznikIc ? ` (IČ: ${o.zakaznikIc})` : ''}`,
+      `Středisko: ${o.lokace || '—'} · Doručit do: ${formatIsoDateCz(o.terminDodani)}`,
+    ];
+    if (o.obchodnik) lines.push(`Obchodník: ${o.obchodnik}`);
+    if (o.stav) lines.push(`Stav: ${o.stav}`);
+    lines.push('Položky:');
+    if (Array.isArray(o.items) && o.items.length) {
+      for (const it of o.items) {
+        const pack = prepocetNaBaleni(it.cislo_zbozi, it.nazev, it.mnozstvi, ctx.state.customPacks);
+        lines.push(`• ${it.nazev}: ${formatQty(it.mnozstvi)} ${it.mj || 'L'} (= ${pack})`);
+      }
+    } else if (o.polozkyPrehled) {
+      lines.push(o.polozkyPrehled);
+    }
+    if (o.poznamka) lines.push(`Poznámka: ${o.poznamka}`);
+    if (o.sarze) lines.push(`Vychystaná šarže: ${o.sarze}`);
+    return lines.join('\n');
+  }
+
+  document.getElementById('ord-share-cart-btn')?.addEventListener('click', async () => {
+    if (!cartItems.length) {
+      ctx.toast('V košíku zatím nejsou žádné položky ke sdílení.', 'warn');
+      return;
+    }
+    const text = buildOrderShareText({
+      id: '(návrh)',
+      zakaznikNazev: (selectedCustomer?.nazev || custInput.value).trim() || '—',
+      zakaznikIc: custIcInput.value.trim(),
+      obchodnik: salespersonInput.value.trim(),
+      lokace: locationSelect.value,
+      terminDodani: deliveryDateInput.value,
+      poznamka: noteInput.value.trim(),
+      items: cartItems,
+    });
+    const status = await shareOrCopyText({ title: 'Souhrn objednávky', text });
+    if (status === 'copied') ctx.toast('📋 Souhrn objednávky zkopírován do schránky', 'success');
+    else if (status === 'shared') ctx.toast('✅ Souhrn sdílen', 'success');
+  });
+
   // --- Správa přijatých objednávek (update_order_status) ---
   statusFiltersEl.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-ord-filter]');
@@ -873,6 +920,21 @@ export function createOrdersTab(ctx) {
   });
 
   ordersListEl.addEventListener('click', async (e) => {
+    const shareOrdBtn = e.target.closest('[data-share-order-id]');
+    if (shareOrdBtn) {
+      const orderId = shareOrdBtn.dataset.shareOrderId;
+      const ord = (ctx.state.orders || []).find((o) => o.id === orderId);
+      if (ord) {
+        const status = await shareOrCopyText({
+          title: `Objednávka ${ord.id}`,
+          text: buildOrderShareText(ord),
+        });
+        if (status === 'copied') ctx.toast('📋 Objednávka zkopírována do schránky', 'success');
+        else if (status === 'shared') ctx.toast('✅ Objednávka sdílena', 'success');
+      }
+      return;
+    }
+
     const saveBtn = e.target.closest('[data-save-order-id]');
     if (!saveBtn) return;
     const orderId = saveBtn.dataset.saveOrderId;
@@ -1041,6 +1103,10 @@ export function createOrdersTab(ctx) {
                 💾 Uložit stav
               </button>
             </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+              <button type="button" class="btn btn-sm" data-share-order-id="${escapeHtml(o.id)}">📤 Sdílet objednávku</button>
+              <a href="${escapeHtml(buildWhatsAppUrl(buildOrderShareText(o)))}" target="_blank" rel="noopener noreferrer" class="btn btn-sm">💬 WhatsApp</a>
+            </div>
           </article>
         `;
       })
@@ -1050,7 +1116,7 @@ export function createOrdersTab(ctx) {
   /**
    * Přidá produkt do rozpracované objednávky přímo z katalogu.
    */
-  function prefillProductToOrder(productCode, warehouseHint = '') {
+  function prefillProductToOrder(productCode, warehouseHint = '', customQty = null) {
     const prod = getAvailableStockProducts().find((p) => p.code === productCode);
     if (!prod) return;
     if (warehouseHint === 'Valmez' || warehouseHint === 'Boršice') {
@@ -1058,6 +1124,7 @@ export function createOrdersTab(ctx) {
       locationSelect.value = warehouseHint;
     }
     const step = ziskejKrokBaleni(prod.code, prod.name, ctx.state.customPacks);
+    const addQty = Number(customQty) > 0 ? Math.round(Number(customQty) * 1000) / 1000 : step;
     const { total } = getProductAvailableQty(prod);
     const uom = detectBaseUnit(prod.name).toUpperCase();
 
@@ -1065,19 +1132,20 @@ export function createOrdersTab(ctx) {
       (i) => i.cislo_zbozi === prod.code && i.lokace === selectedLocation
     );
     if (existing) {
-      existing.mnozstvi = Math.round((existing.mnozstvi + step) * 1000) / 1000;
+      existing.mnozstvi = Math.round((existing.mnozstvi + addQty) * 1000) / 1000;
     } else {
       cartItems.push({
         cislo_zbozi: prod.code,
         nazev: prod.name,
-        mnozstvi: step,
+        mnozstvi: addQty,
         mj: uom === 'KG' ? 'KG' : 'L',
         lokace: selectedLocation,
         maxAvailable: total,
       });
     }
     render();
-    ctx.toast(`🛒 Přidáno do objednávky: ${prod.name} (${formatQty(step)} ${uom})`, 'success');
+    const pack = prepocetNaBaleni(prod.code, prod.name, addQty, ctx.state.customPacks);
+    ctx.toast(`🛒 Přidáno do objednávky: ${prod.name} (${formatQty(addQty)} ${uom} = ${pack})`, 'success');
   }
 
   function render() {

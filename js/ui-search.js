@@ -9,8 +9,10 @@
  */
 
 import {
+  buildWhatsAppUrl,
   escapeHtml,
   evaluateExpiration,
+  extractPorDoseOptions,
   filterByWarehouse,
   formatIsoDateCz,
   formatQty,
@@ -23,6 +25,7 @@ import {
   paletovaKalkulacka,
   parseCategory,
   prepocetNaBaleni,
+  shareOrCopyText,
   ziskejKrokBaleni,
 } from './domain.js';
 import { clearRecentSearches, loadRecentSearches, pushRecentSearch } from './storage.js';
@@ -407,6 +410,64 @@ export function createSearchTab(ctx) {
       return;
     }
 
+    const shareBtn = e.target.closest('[data-share-product]');
+    if (shareBtn) {
+      const code = shareBtn.dataset.shareProduct;
+      const prod = getBaseProductsPool().find((p) => p.code === code);
+      if (prod) {
+        const text = buildProductShareText(prod);
+        shareOrCopyText({ title: prod.name, text }).then((status) => {
+          if (status === 'copied') ctx.toast('📋 Přehled zkopírován do schránky (vlož do WhatsAppu / e-mailu)', 'success');
+          else if (status === 'shared') ctx.toast('✅ Sdíleno', 'success');
+        });
+      }
+      return;
+    }
+
+    const dosePresetBtn = e.target.closest('[data-dose-preset]');
+    if (dosePresetBtn) {
+      const box = dosePresetBtn.closest('[data-calc-box]');
+      const doseIn = box?.querySelector('input[name="calc_dose"]');
+      if (doseIn) {
+        doseIn.value = dosePresetBtn.dataset.dosePreset;
+        updateDosageCalc(box);
+      }
+      return;
+    }
+
+    const haPresetBtn = e.target.closest('[data-ha-preset]');
+    if (haPresetBtn) {
+      const box = haPresetBtn.closest('[data-calc-box]');
+      const haIn = box?.querySelector('input[name="calc_ha"]');
+      if (haIn) {
+        haIn.value = haPresetBtn.dataset.haPreset;
+        updateDosageCalc(box);
+      }
+      return;
+    }
+
+    const calcOrderBtn = e.target.closest('[data-calc-order]');
+    if (calcOrderBtn) {
+      const code = calcOrderBtn.dataset.calcOrder;
+      const wh = calcOrderBtn.dataset.calcWh || '';
+      const qty = parseFloat(calcOrderBtn.dataset.calcQty || '0');
+      if (code && qty > 0) {
+        ctx.openOrderForProduct(code, wh, qty);
+      }
+      return;
+    }
+
+    const calcShareBtn = e.target.closest('[data-calc-share]');
+    if (calcShareBtn) {
+      const text = calcShareBtn.dataset.calcShare || '';
+      const title = calcShareBtn.dataset.calcTitle || 'Kalkulace dávkování';
+      shareOrCopyText({ title, text }).then((status) => {
+        if (status === 'copied') ctx.toast('📋 Kalkulace zkopírována do schránky', 'success');
+        else if (status === 'shared') ctx.toast('✅ Kalkulace sdílena', 'success');
+      });
+      return;
+    }
+
     const resetPackBtn = e.target.closest('[data-reset-pack]');
     if (resetPackBtn) {
       const code = resetPackBtn.dataset.resetPack;
@@ -428,6 +489,107 @@ export function createSearchTab(ctx) {
       renderResults();
     }
   });
+
+  resultsEl.addEventListener('input', (e) => {
+    const calcInput = e.target.closest('[data-calc-box] input');
+    if (!calcInput) return;
+    const box = calcInput.closest('[data-calc-box]');
+    if (box) updateDosageCalc(box);
+  });
+
+  function buildProductShareText(prod) {
+    const customPacks = ctx.state.customPacks;
+    const lines = [`📦 ${prod.name}`];
+    if (!prod.isCatalogOnly && prod.code) lines.push(`Kód: ${prod.code}`);
+    if (prod.por?.ul?.length) {
+      const ulStr = prod.por.ul.map((u) => `${u.n}${u.c ? ` (${u.c})` : ''}`).join(' + ');
+      lines.push(`🧪 Účinná látka: ${ulStr}`);
+    }
+    if (prod.por) {
+      const pho = prod.por.pho?.restricted ? `Omezení (${prod.por.pho.code || 'OP II. st.'})` : 'Povolen v OP II. st.';
+      const bees = prod.por.bees?.code && prod.por.bees.code !== 'OK' ? prod.por.bees.code : 'Bez omezení';
+      lines.push(`💧 Vody (PHO): ${pho} · 🐝 Včely: ${bees}`);
+    }
+    if (prod.fert) {
+      if (prod.fert.elements || prod.fert.prvky) lines.push(`🌱 Živiny: ${prod.fert.elements || prod.fert.prvky}`);
+      if (prod.fert.tankmix) lines.push(`🔄 Tank-mix: ${prod.fert.tankmix}`);
+      if (prod.fert.note || prod.fert.poznamka) lines.push(`📝 Poznámka: ${prod.fert.note || prod.fert.poznamka}`);
+    }
+    if (prod.totalQty > 0) {
+      const pack = prepocetNaBaleni(prod.code, prod.name, prod.totalQty, customPacks);
+      lines.push(`📊 Skladem: ${formatQtyWithUnit(prod.totalQty, prod.name)} (= ${pack})`);
+    } else {
+      lines.push(`📊 Skladem: 0 (katalog ÚKZÚZ)`);
+    }
+    return lines.join('\n');
+  }
+
+  function updateDosageCalc(box) {
+    const outEl = box.querySelector('[data-calc-output]');
+    if (!outEl) return;
+    const code = box.dataset.calcCode || '';
+    const name = box.dataset.calcName || '';
+    const wh = box.dataset.calcWh || '';
+    const stockQty = parseFloat(box.dataset.calcStock || '0') || 0;
+    const isCatalogOnly = box.dataset.calcCatalog === '1';
+
+    const ha = parseFloat(String(box.querySelector('input[name="calc_ha"]')?.value || '').replace(',', '.'));
+    const dose = parseFloat(String(box.querySelector('input[name="calc_dose"]')?.value || '').replace(',', '.'));
+
+    if (!ha || ha <= 0 || !dose || dose <= 0) {
+      outEl.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu kartonů.</div>`;
+      return;
+    }
+
+    const pkg = getPackagingInfo(code, name, ctx.state.customPacks);
+    const uom = pkg.uomDisplay;
+    const exactNeed = Math.round(ha * dose * 1000) / 1000;
+    // Zaokrouhlení nahoru na celá jednotková balení (např. kanystry po 5 L)
+    const unitStep = pkg.unitSize > 0 ? pkg.unitSize : 1;
+    const roundedNeed = Math.round(Math.ceil((exactNeed - 1e-6) / unitStep) * unitStep * 1000) / 1000;
+    const packStr = prepocetNaBaleni(code, name, roundedNeed, ctx.state.customPacks);
+
+    const stockOk = stockQty >= roundedNeed;
+    const missing = Math.round((roundedNeed - stockQty) * 1000) / 1000;
+    const stockLine = isCatalogOnly
+      ? `<span style="color:var(--ink-muted);">Položka není skladem (katalog ÚKZÚZ)</span>`
+      : stockOk
+        ? `<span style="color:var(--brand-700);font-weight:700;">✅ Skladem dostatek (${formatQty(stockQty)} ${uom})</span>`
+        : `<span style="color:var(--danger);font-weight:700;">⚠️ Skladem jen ${formatQty(stockQty)} ${uom} (chybí ${formatQty(missing)} ${uom})</span>`;
+
+    const shareText = [
+      `🧮 Kalkulace dávkování: ${name}`,
+      `Výměra: ${formatQty(ha)} ha · Dávka: ${formatQty(dose)} ${uom}/ha`,
+      `Čistá potřeba: ${formatQty(exactNeed)} ${uom}`,
+      `K odběru (celá balení): ${formatQty(roundedNeed)} ${uom} = ${packStr}`,
+      !isCatalogOnly ? (stockOk ? `Skladem: dostatek (${formatQty(stockQty)} ${uom})` : `Skladem: ${formatQty(stockQty)} ${uom}`) : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    outEl.innerHTML = `
+      <div class="calc-result-box">
+        <div class="calc-result-row">
+          <span>Čistá potřeba (${formatQty(ha)} ha × ${formatQty(dose)} ${uom}/ha):</span>
+          <strong class="mono">${formatQty(exactNeed)} ${uom}</strong>
+        </div>
+        <div class="calc-result-row is-highlight">
+          <span>K odběru (celá balení po ${formatQty(unitStep)} ${uom}):</span>
+          <strong>${formatQty(roundedNeed)} ${uom} = ${escapeHtml(packStr)}</strong>
+        </div>
+        <div style="font-size:0.78rem;margin-top:4px;">${stockLine}</div>
+        <div class="calc-result-actions">
+          ${
+            !isCatalogOnly && stockQty > 0
+              ? `<button type="button" class="btn btn-primary btn-sm" data-calc-order="${escapeHtml(code)}" data-calc-wh="${escapeHtml(wh)}" data-calc-qty="${roundedNeed}">🛒 Přidat ${formatQty(roundedNeed)} ${uom} do objednávky</button>`
+              : ''
+          }
+          <button type="button" class="btn btn-sm" data-calc-share="${escapeHtml(shareText)}" data-calc-title="${escapeHtml(name)}">📤 Sdílet kalkulaci</button>
+          <a href="${escapeHtml(buildWhatsAppUrl(shareText))}" target="_blank" rel="noopener noreferrer" class="btn btn-sm">💬 WhatsApp</a>
+        </div>
+      </div>
+    `;
+  }
 
   resultsEl.addEventListener('submit', (e) => {
     const fertForm = e.target.closest('[data-fert-form]');
@@ -992,12 +1154,15 @@ export function createSearchTab(ctx) {
           </div>
         </div>
 
-        <!-- Rychlé akce: Otevřít v Agromanuálu (u všech položek vč. hnojiv) + Objednat -->
+        <!-- Rychlé akce: Otevřít v Agromanuálu + Sdílet + Objednat -->
         <div class="card-quick-actions">
           <a href="${escapeHtml(agromanualUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm agromanual-btn" title="Vyhledat očištěný název přípravku nebo hnojiva na Agromanuál.cz">
-            <span>📘 Otevřít v Agromanuálu</span>
+            <span>📘 Agromanuál</span>
             <span aria-hidden="true">↗</span>
           </a>
+          <button type="button" class="btn btn-sm" data-share-product="${escapeHtml(prod.code)}" title="Sdílet přehled přes WhatsApp / SMS / e-mail nebo zkopírovat">
+            📤 Sdílet
+          </button>
           ${
             !prod.isCatalogOnly && prod.totalQty > 0
               ? `<button type="button" class="btn btn-primary btn-sm" data-order-code="${escapeHtml(prod.code)}" data-order-wh="${escapeHtml(primaryWh)}">
@@ -1006,6 +1171,58 @@ export function createSearchTab(ctx) {
               : ''
           }
         </div>
+
+        ${(() => {
+          const pkg = getPackagingInfo(prod.code, prod.name, customPacks);
+          const uom = pkg.uomDisplay;
+          const doseOpts = extractPorDoseOptions(prod.por?.uses || []);
+          const defaultDose = doseOpts[0]?.dose || '';
+          const doseChipsHtml = doseOpts.length
+            ? `<div class="chip-row chip-row-wrap" style="padding:0;margin-bottom:8px;">
+                 ${doseOpts
+                   .map(
+                     (o) =>
+                       `<button type="button" class="chip" data-dose-preset="${o.dose}">${escapeHtml(o.label)}</button>`
+                   )
+                   .join('')}
+               </div>`
+            : '';
+          return `
+            <details class="pack-details" style="margin-top:8px;">
+              <summary>🧮 Kalkulačka dávkování (ha → ${uom} / kartony → objednávka)</summary>
+              <div
+                class="dosage-calc-box"
+                data-calc-box="1"
+                data-calc-code="${escapeHtml(prod.code)}"
+                data-calc-name="${escapeHtml(prod.name)}"
+                data-calc-wh="${escapeHtml(primaryWh)}"
+                data-calc-stock="${prod.totalQty}"
+                data-calc-catalog="${prod.isCatalogOnly ? '1' : '0'}"
+              >
+                ${doseChipsHtml}
+                <div class="form-grid-2">
+                  <div class="field">
+                    <label>Výměra (ha)</label>
+                    <input class="input mono" type="number" name="calc_ha" min="0.1" step="any" inputmode="decimal" placeholder="např. 85" />
+                  </div>
+                  <div class="field">
+                    <label>Dávka (${uom}/ha)</label>
+                    <input class="input mono" type="number" name="calc_dose" min="0.001" step="any" inputmode="decimal" value="${defaultDose}" placeholder="např. 0.8" />
+                  </div>
+                </div>
+                <div class="chip-row" style="padding:0;margin:6px 0 8px;">
+                  <button type="button" class="chip" data-ha-preset="10">10 ha</button>
+                  <button type="button" class="chip" data-ha-preset="25">25 ha</button>
+                  <button type="button" class="chip" data-ha-preset="50">50 ha</button>
+                  <button type="button" class="chip" data-ha-preset="100">100 ha</button>
+                </div>
+                <div data-calc-output>
+                  <div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu kartonů.</div>
+                </div>
+              </div>
+            </details>
+          `;
+        })()}
 
         ${palletHtml}
         ${fefoHtml}

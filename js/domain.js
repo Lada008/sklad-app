@@ -845,3 +845,91 @@ export function buildXlsxBlob(sheetName, headers, rows) {
     { name: 'xl/worksheets/sheet1.xml', content: sheetXml },
   ]);
 }
+
+/**
+ * Extrahuje použitelné dávky (l/ha nebo kg/ha) z pole `por.uses` z registru ÚKZÚZ.
+ */
+export function extractPorDoseOptions(porUses = []) {
+  if (!Array.isArray(porUses) || !porUses.length) return [];
+  const seen = new Set();
+  const options = [];
+
+  for (const u of porUses) {
+    const raw = String(u?.d || '').trim();
+    if (!raw) continue;
+    // Najdi první číselnou hodnotu (nebo horní hranici rozsahu např. "0,5-0,8 l/ha") s jednotkou /ha
+    const rangeM = raw.match(/(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg)\s*\/\s*ha/i);
+    const singleM = raw.match(/(\d+(?:[.,]\d+)?)\s*(ml|l|g|kg)\s*\/\s*ha/i);
+    let val = null;
+    let unit = '';
+    if (rangeM) {
+      val = parseFloat(rangeM[2].replace(',', '.'));
+      unit = rangeM[3].toLowerCase();
+    } else if (singleM) {
+      val = parseFloat(singleM[1].replace(',', '.'));
+      unit = singleM[2].toLowerCase();
+    }
+    if (!val || Number.isNaN(val) || val <= 0) continue;
+    if (unit === 'ml' || unit === 'g') val = Math.round((val / 1000) * 10000) / 10000;
+    const uom = unit === 'kg' || unit === 'g' ? 'kg' : 'L';
+    const crop = String(u?.c || '').trim().split(',')[0].slice(0, 22);
+    const dedupKey = `${crop.toLowerCase()}|${val}|${uom}`;
+    if (seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    options.push({
+      crop: crop || 'Dávka',
+      dose: val,
+      uom,
+      label: `${crop ? `${crop}: ` : ''}${formatQty(val)} ${uom}/ha`,
+    });
+    if (options.length >= 6) break;
+  }
+
+  return options;
+}
+
+/**
+ * Sdílení textu přes nativní Web Share API (mobil: WhatsApp, SMS, e-mail) s fallbackem do schránky.
+ * Vrací 'shared' | 'copied' | 'cancelled' | 'failed'.
+ */
+export async function shareOrCopyText({ title = 'Skladový asistent', text = '' } = {}) {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) return 'failed';
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title, text: cleanText });
+      return 'shared';
+    } catch (err) {
+      if (err && err.name === 'AbortError') return 'cancelled';
+      // Pokračuj fallbackem na clipboard
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(cleanText);
+      return 'copied';
+    } catch {
+      // Fallback níže
+    }
+  }
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = cleanText;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok ? 'copied' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+export function buildWhatsAppUrl(text) {
+  return `https://wa.me/?text=${encodeURIComponent(String(text || '').trim())}`;
+}

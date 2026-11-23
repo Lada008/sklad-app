@@ -2882,3 +2882,44 @@ button {
   background: #fafafa;
 }
 
+.dosage-calc-box {
+  margin-top: 10px;
+  padding: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.calc-result-box {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+
+.calc-result-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  color: var(--ink-secondary);
+  margin-bottom: 4px;
+}
+
+.calc-result-row.is-highlight {
+  color: var(--brand-900);
+  font-size: 0.88rem;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+
+.calc-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+

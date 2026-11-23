@@ -597,9 +597,9 @@ const ctx = {
     switchTab('search');
     tabs.search.setSearchQuery(productName, true);
   },
-  openOrderForProduct(code, warehouseHint) {
+  openOrderForProduct(code, warehouseHint, customQty = null) {
     switchTab('orders');
-    tabs.orders.prefillProductToOrder(code, warehouseHint);
+    tabs.orders.prefillProductToOrder(code, warehouseHint, customQty);
   },
 };
 
