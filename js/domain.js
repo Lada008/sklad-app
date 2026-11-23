@@ -892,7 +892,7 @@ export function extractPorDoseOptions(porUses = []) {
  * Sdílení textu přes nativní Web Share API (mobil: WhatsApp, SMS, e-mail) s fallbackem do schránky.
  * Vrací 'shared' | 'copied' | 'cancelled' | 'failed'.
  */
-export async function shareOrCopyText({ title = 'Lukromáček', text = '' } = {}) {
+export async function shareOrCopyText({ title = 'Lakromáček', text = '' } = {}) {
   const cleanText = String(text || '').trim();
   if (!cleanText) return 'failed';
 

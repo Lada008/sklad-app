@@ -1,13 +1,13 @@
 {
-  "name": "LUKROMáček — Sklad & Objednávky",
-  "short_name": "LUKROMáček",
-  "description": "Rychlý skladový terminál pro vyhledávání zboží, FEFO expirace, inventury a hlášení nesrovnalostí. Funguje i offline a nikdy se neuspává.",
+  "name": "Lakromáček — Sklad & Objednávky",
+  "short_name": "Lakromáček",
+  "description": "Skladový a obchodní terminál pro vyhledávání zboží, FEFO expirace, inventury a objednávky.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#f3f5f2",
-  "theme_color": "#14532d",
+  "background_color": "#f2f1ec",
+  "theme_color": "#1b3228",
   "lang": "cs",
   "icons": [
     {

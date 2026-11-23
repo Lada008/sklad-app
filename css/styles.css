@@ -3,64 +3,69 @@
    ========================================================================== */
 
 :root {
-  /* Palette — High-contrast Agritech Daylight Terminal */
-  --bg: #f3f5f2;
+  /* Palette — Grounded Corporate Agro Terminal (Lakromáček) */
+  --bg: #f2f1ec;
   --surface: #ffffff;
-  --surface-subtle: #f7f9f7;
-  --surface-hover: #eef2ee;
-  --border: #dce3dc;
-  --border-strong: #c2ccc3;
+  --surface-subtle: #f7f6f2;
+  --surface-hover: #eceae2;
+  --border: #d8d5cc;
+  --border-strong: #beb9ac;
 
-  --ink: #0f172a;
-  --ink-secondary: #334155;
-  --ink-muted: #5b6878;
-  --ink-faint: #8492a3;
+  --ink: #1c1d1a;
+  --ink-secondary: #3f413b;
+  --ink-muted: #66685f;
+  --ink-faint: #8f9187;
 
-  --brand-950: #0b331b;
-  --brand-900: #14532d;
-  --brand-800: #166534;
-  --brand-700: #15803d;
-  --brand-600: #16a34a;
-  --brand-100: #dcfce7;
-  --brand-50: #f0fdf4;
+  --brand-950: #14261e;
+  --brand-900: #1b3228;
+  --brand-800: #254738;
+  --brand-700: #2f5b47;
+  --brand-600: #3b7058;
+  --brand-100: #e3eee8;
+  --brand-50: #f2f7f4;
 
-  --danger: #dc2626;
-  --danger-dark: #991b1b;
-  --danger-bg: #fef2f2;
-  --danger-border: #fecaca;
+  --accent: #c98520;
+  --accent-dark: #945d10;
+  --accent-bg: #fbf6eb;
+  --accent-border: #e2c182;
 
-  --warn: #d97706;
-  --warn-dark: #92400e;
-  --warn-bg: #fffbeb;
-  --warn-border: #fde68a;
+  --danger: #b91c1c;
+  --danger-dark: #7f1d1d;
+  --danger-bg: #fdf2f2;
+  --danger-border: #f3c6c6;
 
-  --soon: #ca8a04;
-  --soon-bg: #fefce8;
-  --soon-border: #fef08a;
+  --warn: #b45309;
+  --warn-dark: #78350f;
+  --warn-bg: #fcf6e8;
+  --warn-border: #ead29c;
 
-  --info: #1d4ed8;
-  --info-dark: #1e3a8a;
-  --info-bg: #eff6ff;
-  --info-border: #bfdbfe;
+  --soon: #a16207;
+  --soon-bg: #faf7e6;
+  --soon-border: #e9dc9c;
+
+  --info: #2c5282;
+  --info-dark: #1a365d;
+  --info-bg: #eef4fa;
+  --info-border: #bdd2e8;
 
   /* Typography */
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* Radius & Elevation */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  /* Crisp Industrial Radius & Subtle Elevation */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
   --radius-pill: 999px;
 
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 8px 20px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
-  --shadow-float: 0 14px 32px rgba(15, 23, 42, 0.14);
+  --shadow-xs: 0 1px 1px rgba(28, 29, 26, 0.05);
+  --shadow-sm: 0 1px 3px rgba(28, 29, 26, 0.07);
+  --shadow-md: 0 4px 12px rgba(28, 29, 26, 0.09);
+  --shadow-float: 0 10px 24px rgba(28, 29, 26, 0.14);
 
   /* Layout */
   --container-max: 860px;
-  --bottom-nav-h: 68px;
+  --bottom-nav-h: 64px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -131,9 +136,10 @@ button {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: linear-gradient(135deg, var(--brand-950) 0%, var(--brand-900) 45%, var(--brand-800) 100%);
-  color: #ffffff;
-  box-shadow: 0 4px 16px rgba(11, 51, 27, 0.22);
+  background: var(--brand-900);
+  color: #f7f5ef;
+  border-bottom: 2px solid var(--accent);
+  box-shadow: 0 2px 6px rgba(20, 38, 30, 0.16);
 }
 
 .app-header-inner {
@@ -260,9 +266,9 @@ button {
 }
 
 .wake-toggle.is-active {
-  background: #22c55e;
-  border-color: #4ade80;
-  color: #052e16;
+  background: #d4922a;
+  border-color: #e6b35a;
+  color: #14261e;
 }
 
 .wake-toggle .wake-led {
@@ -274,7 +280,7 @@ button {
 }
 
 .wake-toggle.is-active .wake-led {
-  background: #052e16;
+  background: #14261e;
   opacity: 1;
 }
 
@@ -2917,24 +2923,25 @@ button {
 }
 
 .calc-toggle-btn {
-  background: #eff6ff;
-  border-color: #3b82f6;
-  color: #1d4ed8;
-  font-weight: 800;
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  font-weight: 700;
 }
 
 .calc-toggle-btn:hover,
 .calc-toggle-btn.is-active {
-  background: #2563eb;
-  border-color: #1d4ed8;
+  background: var(--accent);
+  border-color: var(--accent-dark);
   color: #ffffff;
 }
 
 .dosage-calc-box {
   margin-top: 10px;
-  padding: 13px;
-  background: #f0f7ff;
-  border: 1.5px solid #93c5fd;
+  padding: 12px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
 }
 
@@ -2946,13 +2953,28 @@ button {
   flex-wrap: wrap;
   margin-bottom: 9px;
   font-size: 0.88rem;
-  color: #1e3a8a;
+  color: var(--accent-dark);
 }
 
 .dosage-calc-head span {
   font-size: 0.75rem;
-  color: #3b82f6;
-  font-weight: 700;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.product-card {
+  border-left: 3px solid var(--brand-800);
+}
+
+.product-card.is-out-of-stock {
+  border-left-color: var(--border-strong);
+}
+
+.app-nav {
+  background: #ffffff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-top: 1px solid var(--border-strong);
 }
 
 .calc-result-box {
