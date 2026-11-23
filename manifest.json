@@ -1,6 +1,6 @@
 {
-  "name": "Skladový asistent — Mobilní terminál",
-  "short_name": "Sklad",
+  "name": "Lukromáček — Sklad & Objednávky",
+  "short_name": "Lukromáček",
   "description": "Rychlý skladový terminál pro vyhledávání zboží, FEFO expirace, inventury a hlášení nesrovnalostí. Funguje i offline a nikdy se neuspává.",
   "start_url": "./",
   "scope": "./",

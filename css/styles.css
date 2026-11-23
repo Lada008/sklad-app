@@ -2882,12 +2882,43 @@ button {
   background: #fafafa;
 }
 
+.calc-toggle-btn {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+  font-weight: 800;
+}
+
+.calc-toggle-btn:hover,
+.calc-toggle-btn.is-active {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #ffffff;
+}
+
 .dosage-calc-box {
   margin-top: 10px;
-  padding: 12px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border);
+  padding: 13px;
+  background: #f0f7ff;
+  border: 1.5px solid #93c5fd;
   border-radius: var(--radius-md);
+}
+
+.dosage-calc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+  font-size: 0.88rem;
+  color: #1e3a8a;
+}
+
+.dosage-calc-head span {
+  font-size: 0.75rem;
+  color: #3b82f6;
+  font-weight: 700;
 }
 
 .calc-result-box {

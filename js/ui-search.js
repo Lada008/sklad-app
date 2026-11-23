@@ -410,6 +410,22 @@ export function createSearchTab(ctx) {
       return;
     }
 
+    const toggleCalcBtn = e.target.closest('[data-toggle-calc]');
+    if (toggleCalcBtn) {
+      const card = toggleCalcBtn.closest('.product-card');
+      const wrap = card?.querySelector('[data-calc-wrap]');
+      if (wrap) {
+        const willOpen = wrap.hidden;
+        wrap.hidden = !willOpen;
+        toggleCalcBtn.classList.toggle('is-active', willOpen);
+        toggleCalcBtn.setAttribute('aria-expanded', String(willOpen));
+        if (willOpen) {
+          wrap.querySelector('input[name="calc_ha"]')?.focus();
+        }
+      }
+      return;
+    }
+
     const shareBtn = e.target.closest('[data-share-product]');
     if (shareBtn) {
       const code = shareBtn.dataset.shareProduct;
@@ -1154,8 +1170,11 @@ export function createSearchTab(ctx) {
           </div>
         </div>
 
-        <!-- Rychlé akce: Otevřít v Agromanuálu + Sdílet + Objednat -->
+        <!-- Rychlé akce: Kalkulačka ha + Agromanuál + Sdílet + Objednat -->
         <div class="card-quick-actions">
+          <button type="button" class="btn btn-sm calc-toggle-btn" data-toggle-calc="1" aria-expanded="false" title="Spočítej potřebu podle výměry v hektarech (ha → L/kg → kartony)">
+            🧮 Kalkulačka ha
+          </button>
           <a href="${escapeHtml(agromanualUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm agromanual-btn" title="Vyhledat očištěný název přípravku nebo hnojiva na Agromanuál.cz">
             <span>📘 Agromanuál</span>
             <span aria-hidden="true">↗</span>
@@ -1188,8 +1207,7 @@ export function createSearchTab(ctx) {
                </div>`
             : '';
           return `
-            <details class="pack-details" style="margin-top:8px;">
-              <summary>🧮 Kalkulačka dávkování (ha → ${uom} / kartony → objednávka)</summary>
+            <div class="dosage-calc-wrap" data-calc-wrap="1" hidden>
               <div
                 class="dosage-calc-box"
                 data-calc-box="1"
@@ -1199,6 +1217,10 @@ export function createSearchTab(ctx) {
                 data-calc-stock="${prod.totalQty}"
                 data-calc-catalog="${prod.isCatalogOnly ? '1' : '0'}"
               >
+                <div class="dosage-calc-head">
+                  <strong>🧮 Kalkulačka dávkování</strong>
+                  <span>ha → ${uom} → kartony &amp; objednávka</span>
+                </div>
                 ${doseChipsHtml}
                 <div class="form-grid-2">
                   <div class="field">
@@ -1220,7 +1242,7 @@ export function createSearchTab(ctx) {
                   <div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu kartonů.</div>
                 </div>
               </div>
-            </details>
+            </div>
           `;
         })()}
 
