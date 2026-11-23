@@ -328,19 +328,24 @@ document.getElementById('warehouse-strip')?.addEventListener('click', (e) => {
   tabs.expirations?.render();
 });
 
-// --- Hlavička: čas aktualizace skladu + synchronizace ÚKZÚZ ---
+// --- Hlavička: kompaktní čas aktualizace skladu + synchronizace ÚKZÚZ (DD.MM. HH:MM) ---
+function formatShortHeaderTs(ts) {
+  if (!ts) return '';
+  return String(ts).trim().replace(/^(\d{1,2}\.\d{1,2}\.)\d{4}\b/, '$1');
+}
+
 function renderHeaderMeta() {
   const stockEl = document.getElementById('header-updated-at');
   if (stockEl) {
     const ts = state.lastSkladUpdate || state.meta?.updatedAt;
-    stockEl.textContent = ts ? `Sklad: ${ts}` : 'Načítám data…';
+    stockEl.textContent = ts ? `Sklad: ${formatShortHeaderTs(ts)}` : 'Načítám data…';
   }
 
   const ukzuzEl = document.getElementById('header-ukzuz-at');
   const ukzuzSep = document.getElementById('header-ukzuz-sep');
   if (ukzuzEl && ukzuzSep) {
     if (state.porMeta?.updatedAt) {
-      ukzuzEl.textContent = `ÚKZÚZ: ${state.porMeta.updatedAt}`;
+      ukzuzEl.textContent = `ÚKZÚZ: ${formatShortHeaderTs(state.porMeta.updatedAt)}`;
       ukzuzEl.hidden = false;
       ukzuzSep.hidden = false;
     } else {

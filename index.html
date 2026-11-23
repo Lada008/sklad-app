@@ -7,9 +7,9 @@
   <meta name="description" content="Skladový asistent — mobilní terminál pro rychlé vyhledávání zboží, hlídání FEFO expirací, inventury a hlášení nesrovnalostí ve skladech Boršice, Valmez a komisích." />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Lukromáček" />
+  <meta name="apple-mobile-web-app-title" content="LUKROMáček" />
 
-  <title>Lukromáček — Sklad &amp; Objednávky</title>
+  <title>LUKROMáček — Sklad &amp; Objednávky</title>
 
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
@@ -24,37 +24,39 @@
 <body>
   <header class="app-header">
     <div class="app-header-inner">
-      <div class="brand-block">
-        <img src="assets/icon.svg" alt="" class="brand-logo" width="38" height="38" />
-        <div class="brand-titles">
-          <h1>Lukromáček</h1>
-          <div class="brand-meta">
-            <span id="net-status-pill" class="net-pill">
-              <span class="net-dot" aria-hidden="true"></span>
-              <span id="net-status-text">Připraveno</span>
-            </span>
-            <span aria-hidden="true">·</span>
-            <span id="header-updated-at">Načítám data…</span>
-            <span id="header-ukzuz-sep" aria-hidden="true" hidden>·</span>
-            <span id="header-ukzuz-at" hidden></span>
-          </div>
+      <div class="header-top-row">
+        <div class="brand-block">
+          <img src="assets/icon.svg" alt="" class="brand-logo" width="28" height="28" />
+          <h1 class="brand-title">LUKROMáček</h1>
+        </div>
+
+        <div class="header-actions">
+          <button type="button" id="header-help-btn" class="header-refresh-btn" title="Návod a nápověda, jak aplikaci používat">
+            <span aria-hidden="true">❓</span>
+            <span class="refresh-label-long">Nápověda</span>
+          </button>
+          <button type="button" id="header-refresh-btn" class="header-refresh-btn" title="Obnovit data ze serveru (Google Tabulka)">
+            <span class="refresh-icon" aria-hidden="true">🔄</span>
+            <span class="refresh-label-long">Obnovit data</span>
+          </button>
+          <button type="button" id="wake-toggle-btn" class="wake-toggle is-active" aria-pressed="true" title="Režim skladu — displej nezhasne">
+            <span class="wake-led" aria-hidden="true"></span>
+            <span class="wake-label-long">Displej nezhasne</span>
+            <span class="wake-label-short">Bdělý</span>
+          </button>
         </div>
       </div>
 
-      <div class="header-actions">
-        <button type="button" id="header-help-btn" class="header-refresh-btn" title="Návod a nápověda, jak aplikaci používat">
-          <span aria-hidden="true">❓</span>
-          <span class="refresh-label-long">Nápověda</span>
-        </button>
-        <button type="button" id="header-refresh-btn" class="header-refresh-btn" title="Obnovit data ze serveru (Google Tabulka)">
-          <span class="refresh-icon" aria-hidden="true">🔄</span>
-          <span class="refresh-label-long">Obnovit data</span>
-        </button>
-        <button type="button" id="wake-toggle-btn" class="wake-toggle is-active" aria-pressed="true" title="Režim skladu — displej nezhasne">
-          <span class="wake-led" aria-hidden="true"></span>
-          <span class="wake-label-long">Displej nezhasne</span>
-          <span class="wake-label-short">Bdělý</span>
-        </button>
+      <div class="header-meta-bar">
+        <span id="net-status-pill" class="net-pill">
+          <span class="net-dot" aria-hidden="true"></span>
+          <span id="net-status-text">Připraveno</span>
+        </span>
+        <div class="header-timestamps">
+          <span id="header-updated-at">Načítám data…</span>
+          <span id="header-ukzuz-sep" aria-hidden="true" hidden>·</span>
+          <span id="header-ukzuz-at" hidden></span>
+        </div>
       </div>
     </div>
 
