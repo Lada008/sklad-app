@@ -42,6 +42,10 @@
       </div>
 
       <div class="header-actions">
+        <button type="button" id="header-refresh-btn" class="header-refresh-btn" title="Obnovit data ze serveru (Google Tabulka)">
+          <span class="refresh-icon" aria-hidden="true">🔄</span>
+          <span class="refresh-label-long">Obnovit data</span>
+        </button>
         <button type="button" id="wake-toggle-btn" class="wake-toggle is-active" aria-pressed="true" title="Režim skladu — displej nezhasne">
           <span class="wake-led" aria-hidden="true"></span>
           <span class="wake-label-long">Displej nezhasne</span>
@@ -63,6 +67,16 @@
           <path d="m21 21-4.3-4.3"></path>
         </svg>
         <span>Hledat</span>
+      </button>
+
+      <button type="button" class="nav-btn" data-tab="orders" role="tab" aria-selected="false" aria-controls="tab-orders">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="9" cy="21" r="1"></circle>
+          <circle cx="20" cy="21" r="1"></circle>
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+        </svg>
+        <span>Objednávky</span>
+        <span id="badge-orders" class="nav-badge is-amber" hidden>0</span>
       </button>
 
       <button type="button" class="nav-btn" data-tab="expirations" role="tab" aria-selected="false" aria-controls="tab-expirations">
@@ -107,6 +121,7 @@
 
   <main class="app-main">
     <section id="tab-search" class="tab-panel" role="tabpanel" aria-label="Vyhledávání"></section>
+    <section id="tab-orders" class="tab-panel" role="tabpanel" aria-label="Objednávky" hidden></section>
     <section id="tab-expirations" class="tab-panel" role="tabpanel" aria-label="Expirace a FEFO" hidden></section>
     <section id="tab-inventory" class="tab-panel" role="tabpanel" aria-label="Mobilní inventura" hidden></section>
     <section id="tab-reports" class="tab-panel" role="tabpanel" aria-label="Hlášení nesrovnalostí" hidden></section>

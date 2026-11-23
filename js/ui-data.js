@@ -1,6 +1,6 @@
 /**
- * Záložka 5: Aktualizace skladových dat (.xlsx přímo v prohlížeči),
- * správa registru ÚKZÚZ (automatická denní synchronizace + záložní ruční nahrání POR),
+ * Záložka: Data skladu, Google Apps Script synchronizace, Zákazníci, Poznámky k hnojivům,
+ * Registr ÚKZÚZ (automatická denní synchronizace + záložní ruční nahrání POR),
  * správa vlastních balení, záloha/obnova, PWA instalace a bezpečný reset.
  */
 
@@ -8,8 +8,16 @@ import {
   escapeHtml,
   formatQty,
   getCzechFileTimestamp,
+  normalizeText,
   triggerFileDownload,
 } from './domain.js';
+import {
+  DEFAULT_GAS_URL,
+  DEFAULT_NOTIFY_EMAIL,
+  gasUpdateSklad,
+  gasUpdateZakaznici,
+  parseGenericTableFile,
+} from './gas-api.js';
 import {
   clearInventoryRecords,
   clearLocalPorData,
@@ -18,6 +26,7 @@ import {
   exportFullBackup,
   importFullBackup,
   saveCustomPacks,
+  saveFertilizerNotes,
   saveLocalPorData,
   saveLocalStockData,
 } from './storage.js';
@@ -44,16 +53,24 @@ export function createDataTab(ctx) {
   panel.innerHTML = `
     <div class="section-header">
       <div>
-        <h2 class="section-title">Data skladu, ÚKZÚZ &amp; správa</h2>
-        <p class="section-sub">Nahraj čerstvý export z Business Central (.xlsx) nebo zkontroluj denní synchronizaci ÚKZÚZ.</p>
+        <h2 class="section-title">Data skladu, Google Tabulka &amp; správa</h2>
+        <p class="section-sub">Kompletní synchronizace skladu, zákazníků a objednávek mezi PC, mobilem a e-mailem.</p>
       </div>
+      <button type="button" id="gas-sync-now-btn" class="btn btn-primary btn-sm">🔄 Obnovit data</button>
     </div>
 
-    <div class="card" id="data-status-card"></div>
+    <!-- 1. Konfigurace připojení ke Google Apps Scriptu -->
+    <div class="card" id="gas-config-card"></div>
 
+    <!-- 2. Přehled aktuálního skladu -->
+    <div class="card" style="margin-top: 12px;" id="data-status-card"></div>
+
+    <!-- 3. Nahrání sklad.xlsx s automatickým odesláním do Google Tabulky (update_sklad) -->
     <div class="card" style="margin-top: 12px;">
       <h3 class="section-title" style="margin-bottom: 4px;">🔄 Nahrát nový Excel skladu (Business Central)</h3>
-      <p class="section-sub" style="margin-bottom: 12px;">Položky se automaticky očistí od velikostí balení (5L, 20 L, 10 KG, bal.) a spárují s aktuálním registrem ÚKZÚZ.</p>
+      <p class="section-sub" style="margin-bottom: 12px;">
+        Položky se očistí od velikostí balení, spárují s ÚKZÚZ a okamžitě odešlou do Google Tabulky (<code>update_sklad</code>), aby se nový stav skladu ihned propsal všem obchodníkům do mobilu.
+      </p>
 
       <div id="xlsx-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Vybrat soubor sklad.xlsx">
         <div class="dropzone-icon">📊</div>
@@ -72,16 +89,26 @@ export function createDataTab(ctx) {
         </div>
       </div>
 
+      <div id="xlsx-sync-result" hidden style="margin-top:10px;"></div>
       <div id="xlsx-extra-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;"></div>
     </div>
 
+    <!-- 4. Hromadné nahrání zákazníků z Excelu do Google Tabulky (update_zakaznici) -->
+    <div class="card" style="margin-top: 12px;" id="customers-sync-card"></div>
+
+    <!-- 5. Hnojiva a biostimulanty — vlastní poznámky, účinné prvky a tank-mixy -->
+    <div class="card" style="margin-top: 12px;" id="fertilizer-notes-card"></div>
+
+    <!-- 6. Registr ÚKZÚZ (eAGRI POR) -->
     <div class="card" style="margin-top: 12px;" id="ukzuz-status-card"></div>
 
+    <!-- 7. Vlastní nastavení balení -->
     <div class="card" style="margin-top: 12px;" id="custom-packs-card"></div>
 
+    <!-- 8. Přenos a záloha dat -->
     <div class="card" style="margin-top: 12px;">
       <h3 class="section-title" style="margin-bottom: 4px;">💾 Přenos a záloha dat</h3>
-      <p class="section-sub" style="margin-bottom: 12px;">Zálohuj nebo přenes inventuru, hlášení a vlastní balení mezi telefony.</p>
+      <p class="section-sub" style="margin-bottom: 12px;">Zálohuj nebo přenes inventuru, hlášení, poznámky k hnojivům a vlastní balení.</p>
       <div class="form-grid-2">
         <button type="button" id="backup-export-btn" class="btn">📤 Exportovat zálohu (JSON)</button>
         <button type="button" id="backup-import-btn" class="btn">📥 Obnovit ze zálohy</button>
@@ -107,6 +134,8 @@ export function createDataTab(ctx) {
     </div>
   `;
 
+  const gasSyncNowBtn = document.getElementById('gas-sync-now-btn');
+  const gasConfigCard = document.getElementById('gas-config-card');
   const statusCard = document.getElementById('data-status-card');
   const dropzone = document.getElementById('xlsx-dropzone');
   const fileInput = document.getElementById('xlsx-file-input');
@@ -114,7 +143,10 @@ export function createDataTab(ctx) {
   const progressText = document.getElementById('xlsx-progress-text');
   const progressPct = document.getElementById('xlsx-progress-pct');
   const progressBar = document.getElementById('xlsx-progress-bar');
+  const syncResultBox = document.getElementById('xlsx-sync-result');
   const extraActionsEl = document.getElementById('xlsx-extra-actions');
+  const customersCard = document.getElementById('customers-sync-card');
+  const fertNotesCard = document.getElementById('fertilizer-notes-card');
   const ukzuzCard = document.getElementById('ukzuz-status-card');
   const customPacksCard = document.getElementById('custom-packs-card');
   const pwaCard = document.getElementById('pwa-install-card');
@@ -125,7 +157,36 @@ export function createDataTab(ctx) {
   const resetInvBtn = document.getElementById('reset-inv-btn');
   const resetRepBtn = document.getElementById('reset-rep-btn');
 
-  // --- Upload Excelu skladu z Business Central ---
+  // --- Tlačítko Obnovit data z Google Tabulky ---
+  gasSyncNowBtn.addEventListener('click', async () => {
+    gasSyncNowBtn.disabled = true;
+    const orig = gasSyncNowBtn.innerHTML;
+    gasSyncNowBtn.innerHTML = `<span class="btn-spinner"></span> Synchronizuji…`;
+    await ctx.syncFromGas({ silent: false });
+    gasSyncNowBtn.disabled = false;
+    gasSyncNowBtn.innerHTML = orig;
+  });
+
+  // --- Konfigurace GAS URL a cílového e-mailu ---
+  gasConfigCard.addEventListener('submit', async (e) => {
+    if (e.target.id !== 'gas-config-form') return;
+    e.preventDefault();
+    const gasUrl = document.getElementById('cfg-gas-url').value.trim() || DEFAULT_GAS_URL;
+    const notifyEmail = document.getElementById('cfg-notify-email').value.trim() || DEFAULT_NOTIFY_EMAIL;
+    ctx.setPrefs({ gasUrl, notifyEmail });
+    ctx.toast('✅ Nastavení Google Apps Scriptu a e-mailu uloženo', 'success');
+    await ctx.syncFromGas({ silent: false });
+  });
+
+  gasConfigCard.addEventListener('click', (e) => {
+    if (e.target.closest('#cfg-reset-defaults-btn')) {
+      ctx.setPrefs({ gasUrl: DEFAULT_GAS_URL, notifyEmail: DEFAULT_NOTIFY_EMAIL });
+      renderGasConfigCard();
+      ctx.toast('Obnovena výchozí URL a e-mail', 'success');
+    }
+  });
+
+  // --- Upload Excelu skladu z Business Central + POST update_sklad do Google Tabulky ---
   dropzone.addEventListener('click', () => fileInput.click());
   dropzone.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -158,6 +219,7 @@ export function createDataTab(ctx) {
       return;
     }
 
+    syncResultBox.hidden = true;
     progressBox.hidden = false;
     progressBar.style.width = '3%';
     progressPct.textContent = '3 %';
@@ -166,22 +228,70 @@ export function createDataTab(ctx) {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const parsed = await parseBusinessCentralXlsx(arrayBuffer, file.name, (pct, msg) => {
-        progressBar.style.width = `${pct}%`;
-        progressPct.textContent = `${pct} %`;
+        const scaled = Math.min(80, Math.round(pct * 0.8));
+        progressBar.style.width = `${scaled}%`;
+        progressPct.textContent = `${scaled} %`;
         progressText.textContent = msg;
       });
+
+      progressBar.style.width = '88%';
+      progressPct.textContent = '88 %';
+      progressText.textContent = `Odesílám ${parsed.items.length} šarží do Google Tabulky (update_sklad)…`;
+
+      let gasUpdatedTime = parsed.meta.updatedAt;
+      let gasSyncedOk = false;
+      let gasErrMsg = '';
+
+      try {
+        const resp = await gasUpdateSklad(parsed.items, ctx.state.prefs.gasUrl);
+        gasUpdatedTime = resp.last_sklad_update || gasUpdatedTime;
+        parsed.meta.updatedAt = gasUpdatedTime;
+        parsed.meta.syncedToGas = true;
+        gasSyncedOk = true;
+        ctx.state.lastSkladUpdate = gasUpdatedTime;
+      } catch (gasErr) {
+        gasErrMsg = gasErr.message || String(gasErr);
+      }
+
+      progressBar.style.width = '100%';
+      progressPct.textContent = '100 %';
+      progressText.textContent = 'Hotovo!';
 
       await saveLocalStockData(parsed);
       ctx.applyStockDataset(parsed);
 
       const { matchedProducts, totalProducts } = getMatchedProductStats();
-      ctx.toast(
-        `✅ Načteno ${parsed.meta.batchCount} šarží · spárováno s ÚKZÚZ: ${matchedProducts}/${totalProducts}`,
-        'success'
-      );
+      syncResultBox.hidden = false;
+      if (gasSyncedOk) {
+        syncResultBox.innerHTML = `
+          <div class="callout" style="background:var(--brand-50);border:1px solid var(--brand-600);color:var(--brand-950);margin:0;">
+            <span class="callout-icon">✅</span>
+            <div>
+              <strong>Sklad byl úspěšně uložen do Google Tabulky (${parsed.items.length} šarží)!</strong><br>
+              Čas aktualizace: <strong>${escapeHtml(gasUpdatedTime)}</strong> · Spárováno s ÚKZÚZ: <strong>${matchedProducts}/${totalProducts}</strong> produktů. Nový stav skladu je okamžitě dostupný všem obchodníkům v mobilu.
+            </div>
+          </div>
+        `;
+        ctx.toast(
+          `✅ Sklad uložen do Google Tabulky (${parsed.items.length} šarží · ${gasUpdatedTime})`,
+          'success'
+        );
+      } else {
+        syncResultBox.innerHTML = `
+          <div class="callout callout-expired" style="margin:0;">
+            <span class="callout-icon">⚠️</span>
+            <div>
+              <strong>Sklad byl načten lokálně, ale nepodařilo se ho odeslat do Google Tabulky:</strong><br>
+              ${escapeHtml(gasErrMsg)}. Zkontroluj připojení nebo klikni na „Odeslat aktuální sklad do Google Tabulky“.
+            </div>
+          </div>
+        `;
+        ctx.toast(`⚠️ Sklad načten lokálně, chyba zápisu do Google Tabulky: ${gasErrMsg}`, 'warn');
+      }
+
       setTimeout(() => {
         progressBox.hidden = true;
-      }, 1200);
+      }, 1000);
     } catch (err) {
       progressBox.hidden = true;
       ctx.toast(`❌ Chyba Excelu: ${err.message || err}`, 'danger');
@@ -189,10 +299,31 @@ export function createDataTab(ctx) {
   }
 
   extraActionsEl.addEventListener('click', async (e) => {
+    const pushBtn = e.target.closest('#push-stock-to-gas-btn');
+    if (pushBtn) {
+      pushBtn.disabled = true;
+      const orig = pushBtn.innerHTML;
+      pushBtn.innerHTML = `<span class="btn-spinner"></span> Odesílám do Google Tabulky…`;
+      try {
+        const resp = await gasUpdateSklad(ctx.state.rawItems, ctx.state.prefs.gasUrl);
+        if (resp.last_sklad_update) {
+          ctx.state.lastSkladUpdate = resp.last_sklad_update;
+          if (ctx.state.meta) ctx.state.meta.updatedAt = resp.last_sklad_update;
+        }
+        ctx.refreshAllViews();
+        ctx.toast(`✅ Sklad (${ctx.state.rawItems.length} šarží) odeslán do Google Tabulky`, 'success');
+      } catch (err) {
+        ctx.toast(`❌ Chyba odeslání skladu: ${err.message}`, 'danger');
+      } finally {
+        pushBtn.disabled = false;
+        pushBtn.innerHTML = orig;
+      }
+      return;
+    }
+
     if (e.target.closest('#revert-default-stock-btn')) {
       await clearLocalStockData();
-      await ctx.reloadDefaultStock();
-      ctx.toast('Obnovena výchozí data z repozitáře', 'success');
+      await ctx.syncFromGas({ silent: false });
       return;
     }
     if (e.target.closest('#export-stock-json-btn')) {
@@ -206,6 +337,164 @@ export function createDataTab(ctx) {
         'application/json;charset=utf-8;'
       );
       ctx.toast('Soubor stock.json byl stažen', 'success');
+    }
+  });
+
+  // --- Hromadné nahrání zákazníků z Excelu do Google Tabulky (update_zakaznici) ---
+  customersCard.addEventListener('click', (e) => {
+    if (e.target.closest('#cust-upload-btn')) {
+      document.getElementById('cust-file-input')?.click();
+    }
+  });
+
+  customersCard.addEventListener('change', async (e) => {
+    if (e.target.id !== 'cust-file-input') return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const btn = document.getElementById('cust-upload-btn');
+    const statusBox = document.getElementById('cust-upload-status');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="btn-spinner"></span> Načítám a odesílám zákazníky…`;
+    }
+
+    try {
+      const rows = await parseGenericTableFile(file);
+      if (!rows.length) {
+        throw new Error('Soubor neobsahuje žádné řádky zákazníků.');
+      }
+      await gasUpdateZakaznici(rows, ctx.state.prefs.gasUrl);
+      await ctx.syncFromGas({ silent: true });
+      if (statusBox) {
+        statusBox.hidden = false;
+        statusBox.innerHTML = `
+          <div class="callout" style="background:var(--brand-50);border:1px solid var(--brand-600);color:var(--brand-950);margin-top:10px;">
+            <span class="callout-icon">✅</span>
+            <div><strong>Nahráno ${rows.length.toLocaleString('cs-CZ')} zákazníků do listu Zakaznici!</strong></div>
+          </div>
+        `;
+      }
+      ctx.toast(`✅ Nahráno ${rows.length.toLocaleString('cs-CZ')} zákazníků do Google Tabulky`, 'success');
+    } catch (err) {
+      ctx.toast(`❌ Chyba nahrávání zákazníků: ${err.message}`, 'danger');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '📂 Nahrát zákazníky z Excelu (.xlsx / .csv)';
+      }
+    }
+  });
+
+  // --- Hnojiva a biostimulanty: ruční přidání i hromadný import z Excelu ---
+  fertNotesCard.addEventListener('click', (e) => {
+    const delBtn = e.target.closest('[data-del-fert]');
+    if (delBtn) {
+      ctx.deleteFertilizerNote(delBtn.dataset.delFert);
+      ctx.toast('Poznámka k hnojivu byla smazána', 'warn');
+      return;
+    }
+    if (e.target.closest('#fert-import-xlsx-btn')) {
+      document.getElementById('fert-import-xlsx-input')?.click();
+      return;
+    }
+    if (e.target.closest('#fert-export-json-btn')) {
+      triggerFileDownload(
+        JSON.stringify(ctx.state.fertilizerNotes, null, 2),
+        'poznamky_hnojiva.json',
+        'application/json;charset=utf-8;'
+      );
+      ctx.toast('Poznámky k hnojivům exportovány', 'success');
+    }
+  });
+
+  fertNotesCard.addEventListener('submit', (e) => {
+    if (e.target.id !== 'fert-manual-add-form') return;
+    e.preventDefault();
+    const targetKey = document.getElementById('fert-add-target').value.trim();
+    const elements = document.getElementById('fert-add-elements').value.trim();
+    const tankmix = document.getElementById('fert-add-tankmix').value.trim();
+    const note = document.getElementById('fert-add-note').value.trim();
+    if (!targetKey) {
+      ctx.toast('Vyber nebo zadej název / kód hnojiva.', 'danger');
+      return;
+    }
+    const found = ctx.state.items.find((i) => i.n === targetKey || i.c === targetKey);
+    const key = found ? found.c : targetKey;
+    const name = found ? found.n : targetKey;
+    ctx.setFertilizerNote(key, { name, elements, tankmix, note });
+    e.target.reset();
+    ctx.toast(`🌱 Uložena poznámka pro ${name}`, 'success');
+  });
+
+  fertNotesCard.addEventListener('change', async (e) => {
+    if (e.target.id !== 'fert-import-xlsx-input') return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    try {
+      if (file.name.toLowerCase().endsWith('.json')) {
+        const parsed = JSON.parse(await file.text());
+        ctx.state.fertilizerNotes = { ...ctx.state.fertilizerNotes, ...parsed };
+        saveFertilizerNotes(ctx.state.fertilizerNotes);
+        ctx.rebuildStockEnrichment();
+        ctx.toast('✅ Poznámky k hnojivům naimportovány z JSON', 'success');
+        return;
+      }
+
+      const rows = await parseGenericTableFile(file);
+      let imported = 0;
+      const nextNotes = { ...ctx.state.fertilizerNotes };
+
+      for (const r of rows) {
+        const norm = Object.create(null);
+        for (const [k, v] of Object.entries(r)) norm[normalizeText(k)] = String(v).trim();
+        const codeOrName =
+          norm['cislo zbozi'] ||
+          norm['kod'] ||
+          norm['cislo'] ||
+          norm['nazev'] ||
+          norm['popis'] ||
+          norm['pripravek'] ||
+          norm['hnojivo'] ||
+          Object.values(r)[0] ||
+          '';
+        if (!codeOrName) continue;
+
+        const name = norm['nazev'] || norm['popis'] || norm['hnojivo'] || codeOrName;
+        const elements =
+          norm['ucinne prvky'] ||
+          norm['prvky'] ||
+          norm['ziviny'] ||
+          norm['slozeni'] ||
+          norm['obsah'] ||
+          '';
+        const tankmix =
+          norm['tank-mix'] ||
+          norm['tankmix'] ||
+          norm['doporucene tank-mixy'] ||
+          norm['michatelnost'] ||
+          '';
+        const note =
+          norm['poznamka'] ||
+          norm['poznamky'] ||
+          norm['popis pouziti'] ||
+          norm['davkovani'] ||
+          '';
+
+        if (!elements && !tankmix && !note) continue;
+        nextNotes[codeOrName] = { name, elements, tankmix, note };
+        imported++;
+      }
+
+      ctx.state.fertilizerNotes = nextNotes;
+      saveFertilizerNotes(nextNotes);
+      ctx.rebuildStockEnrichment();
+      ctx.toast(`✅ Naimportováno ${imported} poznámek k hnojivům z Excelu`, 'success');
+    } catch (err) {
+      ctx.toast(`❌ Chyba importu hnojiv: ${err.message}`, 'danger');
     }
   });
 
@@ -373,43 +662,163 @@ export function createDataTab(ctx) {
     return { matchedProducts, totalProducts: seen.size };
   }
 
+  function renderGasConfigCard() {
+    const gasUrl = ctx.state.prefs.gasUrl || DEFAULT_GAS_URL;
+    const notifyEmail = ctx.state.prefs.notifyEmail || DEFAULT_NOTIFY_EMAIL;
+    const isConnected = Boolean(ctx.state.gasConnected);
+
+    gasConfigCard.innerHTML = `
+      <div class="section-header" style="margin-bottom: 10px;">
+        <div>
+          <h3 class="section-title">☁️ Připojení ke Google Apps Script &amp; E-mailu</h3>
+          <p class="section-sub">Sdílená databáze skladu, zákazníků a objednávek v Google Tabulce.</p>
+        </div>
+        <span class="exp-pill ${isConnected ? 'is-ok' : 'is-warning'}">
+          ${isConnected ? '🟢 Připojeno k Google Tabulce' : '🟠 Offline / lokální mezipaměť'}
+        </span>
+      </div>
+
+      <form id="gas-config-form" class="form-stack">
+        <div class="field">
+          <label for="cfg-gas-url">URL adresa nasazeného Google Apps Scriptu (Web App /exec)</label>
+          <input id="cfg-gas-url" class="input mono" style="font-size:0.78rem;" type="url" value="${escapeHtml(gasUrl)}" required />
+        </div>
+        <div class="field">
+          <label for="cfg-notify-email">Cílový e-mail pro odesílání nových objednávek</label>
+          <input id="cfg-notify-email" class="input" type="email" value="${escapeHtml(notifyEmail)}" required />
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="submit" class="btn btn-primary btn-sm">💾 Uložit a synchronizovat</button>
+          <button type="button" id="cfg-reset-defaults-btn" class="btn btn-sm">↩ Obnovit výchozí URL a e-mail</button>
+        </div>
+      </form>
+    `;
+  }
+
   function renderStatusCard() {
     const m = ctx.state.meta || {};
-    const sizeMb = m.sourceSizeBytes ? (m.sourceSizeBytes / (1024 * 1024)).toFixed(2) : null;
-    const isLocal = Boolean(m.isLocalOverride);
+    const productCount = new Set(ctx.state.items.map((i) => i.c)).size;
+    const batchCount = ctx.state.items.length;
+    const updatedAt = ctx.state.lastSkladUpdate || m.updatedAt || '—';
 
     statusCard.innerHTML = `
       <div class="section-header" style="margin-bottom: 10px;">
         <h3 class="section-title">📊 Aktuální skladová data</h3>
-        <span class="exp-pill ${isLocal ? 'is-warning' : 'is-ok'}">${isLocal ? 'Lokálně nahraný Excel' : 'Výchozí data z repozitáře'}</span>
+        <span class="exp-pill is-ok">Google Tabulka (Sklad)</span>
       </div>
       <div class="inv-kpi-row">
         <div class="inv-kpi">
-          <div class="inv-kpi-val">${m.productCount ?? 0}</div>
+          <div class="inv-kpi-val">${productCount}</div>
           <div class="inv-kpi-lbl">Produktů</div>
         </div>
         <div class="inv-kpi">
-          <div class="inv-kpi-val">${m.batchCount ?? 0}</div>
+          <div class="inv-kpi-val">${batchCount}</div>
           <div class="inv-kpi-lbl">Akt. šarží</div>
         </div>
         <div class="inv-kpi">
-          <div class="inv-kpi-val">${m.ledgerRows ? m.ledgerRows.toLocaleString('cs-CZ') : '—'}</div>
-          <div class="inv-kpi-lbl">Řádků BC</div>
+          <div class="inv-kpi-val">${(ctx.state.customers || []).length.toLocaleString('cs-CZ')}</div>
+          <div class="inv-kpi-lbl">Zákazníků</div>
         </div>
         <div class="inv-kpi">
-          <div class="inv-kpi-val">${sizeMb ? `${sizeMb} MB` : '—'}</div>
-          <div class="inv-kpi-lbl">Zdroj</div>
+          <div class="inv-kpi-val">${(ctx.state.orders || []).length}</div>
+          <div class="inv-kpi-lbl">Objednávek</div>
         </div>
       </div>
       <div style="margin-top: 10px; font-size: 0.82rem; color: var(--ink-muted);">
-        Soubor: <strong style="color: var(--ink);">${escapeHtml(m.sourceFile || 'stock.json')}</strong> ·
-        Aktualizováno: <strong style="color: var(--ink);">${escapeHtml(m.updatedAt || '—')}</strong>
+        Poslední aktualizace skladu (<code>last_sklad_update</code>): <strong style="color: var(--ink);">${escapeHtml(updatedAt)}</strong>
       </div>
     `;
 
     extraActionsEl.innerHTML = `
-      ${isLocal ? '<button type="button" id="revert-default-stock-btn" class="btn btn-sm">↩ Obnovit výchozí data z repozitáře</button>' : ''}
+      <button type="button" id="push-stock-to-gas-btn" class="btn btn-sm">☁️ Odeslat aktuální sklad do Google Tabulky</button>
       <button type="button" id="export-stock-json-btn" class="btn btn-sm">📥 Stáhnout kompaktní stock.json</button>
+    `;
+  }
+
+  function renderCustomersCard() {
+    const custs = ctx.state.customers || [];
+    const withOverdue = custs.filter((c) => c.poSplatnosti > 0).length;
+
+    customersCard.innerHTML = `
+      <div class="section-header" style="margin-bottom: 8px;">
+        <div>
+          <h3 class="section-title">🏢 Zákazníci (list Zakaznici)</h3>
+          <p class="section-sub">Načteno <strong>${custs.length.toLocaleString('cs-CZ')}</strong> odběratelů z Google Tabulky${withOverdue > 0 ? ` (${withOverdue} se zůstatkem po splatnosti)` : ''}.</p>
+        </div>
+      </div>
+      <p class="section-sub" style="margin-bottom: 10px;">
+        Volitelně můžeš hromadně nahrát nový seznam zákazníků z Business Central (<code>.xlsx</code> nebo <code>.csv</code> se sloupci <em>Číslo, Název, IČ, DIČ, Telefonní číslo, Kontakt, Kód lokace, Zůstatek po splatnosti (LCY)</em> nebo jen <em>Číslo a Název</em>).
+      </p>
+      <button type="button" id="cust-upload-btn" class="btn btn-sm">📂 Nahrát zákazníky z Excelu (.xlsx / .csv)</button>
+      <input type="file" id="cust-file-input" accept=".xlsx,.csv" hidden />
+      <div id="cust-upload-status" hidden></div>
+    `;
+  }
+
+  function renderFertilizerNotesCard() {
+    const entries = Object.entries(ctx.state.fertilizerNotes || {});
+
+    const listHtml = entries.length
+      ? `<div style="margin-top:10px;max-height:220px;overflow-y:auto;">
+           ${entries
+             .map(
+               ([key, info]) => `
+             <div class="pack-rule-row">
+               <div>
+                 <div style="font-weight:700;font-size:0.86rem;">${escapeHtml(info.name || key)} <span class="mono" style="font-size:0.75rem;color:var(--ink-muted);">(${escapeHtml(key)})</span></div>
+                 <div style="font-size:0.76rem;color:var(--ink-secondary);">
+                   ${info.elements ? `<strong>Živiny:</strong> ${escapeHtml(info.elements)} · ` : ''}
+                   ${info.tankmix ? `<strong>Tank-mix:</strong> ${escapeHtml(info.tankmix)} · ` : ''}
+                   ${info.note ? escapeHtml(info.note) : ''}
+                 </div>
+               </div>
+               <button type="button" class="btn btn-soft-danger btn-sm" data-del-fert="${escapeHtml(key)}">Smazat</button>
+             </div>
+           `
+             )
+             .join('')}
+         </div>`
+      : '<p class="section-sub" style="margin-top:8px;">Zatím nejsou uloženy žádné vlastní poznámky k hnojivům. Můžeš je doplnit přímo na kartě produktu v katalogu, formulářem níže nebo hromadným importem z Excelu.</p>';
+
+    fertNotesCard.innerHTML = `
+      <div class="section-header" style="margin-bottom: 8px;">
+        <div>
+          <h3 class="section-title">🌱 Hnojiva a biostimulanty — poznámky, prvky &amp; tank-mixy (${entries.length})</h3>
+          <p class="section-sub">Ruční doplnění nebo hromadný import z Excelu (.xlsx / .csv se sloupci Název/Kód, Účinné prvky, Tank-mix, Poznámka).</p>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" id="fert-import-xlsx-btn" class="btn btn-sm">📂 Import z Excelu / CSV</button>
+          ${entries.length ? '<button type="button" id="fert-export-json-btn" class="btn btn-sm">📤 Export JSON</button>' : ''}
+        </div>
+      </div>
+
+      <details class="pack-details" style="margin-top:6px;">
+        <summary>➕ Ručně přidat poznámku k hnojivu nebo biostimulantu</summary>
+        <form id="fert-manual-add-form" class="pack-form" style="margin-top:8px;">
+          <div class="field">
+            <label for="fert-add-target">Název nebo kód položky *</label>
+            <input id="fert-add-target" class="input" placeholder="Např. YARAMILACOMPLEX nebo CHE00246…" required />
+          </div>
+          <div class="field">
+            <label for="fert-add-elements">Účinné prvky / živiny</label>
+            <input id="fert-add-elements" class="input" placeholder="Např. N 12%, P 11%, K 18%, Mg, S, mikroprvky…" />
+          </div>
+          <div class="field">
+            <label for="fert-add-tankmix">Doporučené tank-mixy</label>
+            <input id="fert-add-tankmix" class="input" placeholder="Např. mísitelné s DAM 390 a graminicidy…" />
+          </div>
+          <div class="field">
+            <label for="fert-add-note">Poznámka / doporučení</label>
+            <input id="fert-add-note" class="input" placeholder="Např. základní hnojení před setím 200–350 kg/ha…" />
+          </div>
+          <div class="pack-form-actions">
+            <button type="submit" class="btn btn-primary btn-sm">💾 Uložit k hnojivu</button>
+          </div>
+        </form>
+      </details>
+
+      ${listHtml}
+      <input type="file" id="fert-import-xlsx-input" accept=".xlsx,.csv,.json" hidden />
     `;
   }
 
@@ -523,7 +932,7 @@ export function createDataTab(ctx) {
     pwaCard.innerHTML = `
       <h3 class="section-title" style="margin-bottom: 4px;">⚡ Proč se tato aplikace nikdy neuspává</h3>
       <p class="section-sub">
-        Celý Skladový asistent běží jako čistá JavaScriptová PWA přímo v telefonu. Žádný spící server, žádné rozpadlé WebSocket spojení — funguje okamžitě i bez signálu uvnitř haly.
+        Celý Skladový asistent běží jako čistá JavaScriptová PWA přímo v telefonu a synchronizuje data s Google Tabulkou přes Google Apps Script.
       </p>
       <div style="margin-top: 12px;">
         ${
@@ -538,7 +947,10 @@ export function createDataTab(ctx) {
   }
 
   function render() {
+    renderGasConfigCard();
     renderStatusCard();
+    renderCustomersCard();
+    renderFertilizerNotesCard();
     renderUkzuzCard();
     renderCustomPacks();
     renderPwaCard();

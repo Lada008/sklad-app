@@ -24,6 +24,7 @@ import {
   ziskejKrokBaleni,
 } from './domain.js';
 import { clearRecentSearches, loadRecentSearches, pushRecentSearch } from './storage.js';
+import { buildAgromanualUrl } from './gas-api.js';
 import {
   CROP_CATEGORIES,
   CROP_CATEGORY_LABELS,
@@ -385,11 +386,25 @@ export function createSearchTab(ctx) {
       return;
     }
 
+    const orderBtn = e.target.closest('[data-order-code]');
+    if (orderBtn) {
+      ctx.openOrderForProduct(orderBtn.dataset.orderCode, orderBtn.dataset.orderWh || '');
+      return;
+    }
+
     const resetPackBtn = e.target.closest('[data-reset-pack]');
     if (resetPackBtn) {
       const code = resetPackBtn.dataset.resetPack;
       ctx.deleteCustomPack(code);
       ctx.toast('Obnoveno automatické rozpoznání balení', 'success');
+      return;
+    }
+
+    const resetFertBtn = e.target.closest('[data-reset-fert]');
+    if (resetFertBtn) {
+      const key = resetFertBtn.dataset.resetFert;
+      ctx.deleteFertilizerNote(key);
+      ctx.toast('Poznámka k hnojivu byla odstraněna', 'warn');
       return;
     }
 
@@ -400,6 +415,19 @@ export function createSearchTab(ctx) {
   });
 
   resultsEl.addEventListener('submit', (e) => {
+    const fertForm = e.target.closest('[data-fert-form]');
+    if (fertForm) {
+      e.preventDefault();
+      const code = fertForm.dataset.fertForm;
+      const name = fertForm.dataset.fertName || '';
+      const elements = fertForm.querySelector('input[name="elements"]').value.trim();
+      const tankmix = fertForm.querySelector('input[name="tankmix"]').value.trim();
+      const note = fertForm.querySelector('textarea[name="note"]').value.trim();
+      ctx.setFertilizerNote(code, { name, elements, tankmix, note });
+      ctx.toast('🌱 Poznámky a tank-mix k přípravku uloženy', 'success');
+      return;
+    }
+
     const form = e.target.closest('[data-pack-form]');
     if (!form) return;
     e.preventDefault();
@@ -909,6 +937,9 @@ export function createSearchTab(ctx) {
     const defaultObal = customPacks[prod.code]?.obal || 'automaticky';
     const hazardBadgesHtml = renderHeaderHazardBadges(prod.por);
     const porHtml = renderPorPanel(prod, scopedStockProducts, customPacks);
+    const fertHtml = renderFertilizerPanel(prod);
+    const agromanualUrl = buildAgromanualUrl(prod.name, prod.por?.name || null);
+    const primaryWh = prod.batches?.[0]?.wh || '';
 
     return `
       <article class="product-card ${prod.totalQty <= 0 ? 'is-out-of-stock' : ''}">
@@ -944,35 +975,93 @@ export function createSearchTab(ctx) {
           </div>
         </div>
 
+        <!-- Rychlé akce: Otevřít v Agromanuálu (u všech položek vč. hnojiv) + Objednat -->
+        <div class="card-quick-actions">
+          <a href="${escapeHtml(agromanualUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm agromanual-btn" title="Vyhledat očištěný název přípravku nebo hnojiva na Agromanuál.cz">
+            <span>📘 Otevřít v Agromanuálu</span>
+            <span aria-hidden="true">↗</span>
+          </a>
+          ${
+            !prod.isCatalogOnly && prod.totalQty > 0
+              ? `<button type="button" class="btn btn-primary btn-sm" data-order-code="${escapeHtml(prod.code)}" data-order-wh="${escapeHtml(primaryWh)}">
+                   🛒 Přidat do objednávky
+                 </button>`
+              : ''
+          }
+        </div>
+
         ${palletHtml}
         ${fefoHtml}
+        ${fertHtml}
         ${porHtml}
         ${batchesHtml}
 
         ${
           !prod.isCatalogOnly
-            ? `<details class="pack-details">
-                 <summary>⚙️ Upravit přepočet balení pro tento produkt</summary>
-                 <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
-                   <div class="field">
-                     <label>Velikost 1 balení (l / kg)</label>
-                     <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
-                   </div>
-                   <div class="field">
-                     <label>Typ obalu</label>
-                     <select class="select" name="obal">
-                       ${PACKAGING_TYPES.map((opt) => `<option value="${opt.value}" ${opt.value === defaultObal ? 'selected' : ''}>${opt.label}</option>`).join('')}
-                     </select>
-                   </div>
-                   <div class="pack-form-actions">
-                     <button type="submit" class="btn btn-primary btn-sm">💾 Uložit pro produkt</button>
-                     ${hasCustom ? `<button type="button" class="btn btn-sm" data-reset-pack="${escapeHtml(prod.code)}">Obnovit automatiku</button>` : ''}
-                   </div>
-                 </form>
-               </details>`
+            ? `<div class="card-drawers-row">
+                 <details class="pack-details">
+                   <summary>🌱 Poznámky, živiny &amp; tank-mix (hnojiva / biostimulanty)</summary>
+                   <form class="pack-form" data-fert-form="${escapeHtml(prod.code)}" data-fert-name="${escapeHtml(prod.name)}">
+                     <div class="field">
+                       <label>Účinné prvky / živiny (např. N 12%, P 11%, K 18%, B, Zn)</label>
+                       <input class="input" type="text" name="elements" value="${escapeHtml(prod.fert?.elements || prod.fert?.prvky || '')}" placeholder="Např. B 150 g/l, Mo, aminokyseliny…" />
+                     </div>
+                     <div class="field">
+                       <label>Doporučené tank-mixy</label>
+                       <input class="input" type="text" name="tankmix" value="${escapeHtml(prod.fert?.tankmix || '')}" placeholder="Např. kompatibilní s fungicidy a DAM 390…" />
+                     </div>
+                     <div class="field" style="grid-column: 1 / -1;">
+                       <label>Vlastní agronomická poznámka / dávkování</label>
+                       <textarea class="textarea" name="note" style="min-height:58px;" placeholder="Např. aplikovat na list v BBCH 30–51 v dávce 1–2 l/ha…">${escapeHtml(prod.fert?.note || prod.fert?.poznamka || '')}</textarea>
+                     </div>
+                     <div class="pack-form-actions">
+                       <button type="submit" class="btn btn-primary btn-sm">💾 Uložit poznámku</button>
+                       ${prod.fert ? `<button type="button" class="btn btn-soft-danger btn-sm" data-reset-fert="${escapeHtml(prod.code)}">Smazat poznámku</button>` : ''}
+                     </div>
+                   </form>
+                 </details>
+
+                 <details class="pack-details">
+                   <summary>⚙️ Upravit přepočet balení pro tento produkt</summary>
+                   <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
+                     <div class="field">
+                       <label>Velikost 1 balení (l / kg)</label>
+                       <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
+                     </div>
+                     <div class="field">
+                       <label>Typ obalu</label>
+                       <select class="select" name="obal">
+                         ${PACKAGING_TYPES.map((opt) => `<option value="${opt.value}" ${opt.value === defaultObal ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                       </select>
+                     </div>
+                     <div class="pack-form-actions">
+                       <button type="submit" class="btn btn-primary btn-sm">💾 Uložit pro produkt</button>
+                       ${hasCustom ? `<button type="button" class="btn btn-sm" data-reset-pack="${escapeHtml(prod.code)}">Obnovit automatiku</button>` : ''}
+                     </div>
+                   </form>
+                 </details>
+               </div>`
             : ''
         }
       </article>
+    `;
+  }
+
+  function renderFertilizerPanel(prod) {
+    const f = prod.fert;
+    const elements = f?.elements || f?.prvky || '';
+    const tankmix = f?.tankmix || '';
+    const note = f?.note || f?.poznamka || '';
+    if (!f || (!elements && !tankmix && !note)) return '';
+    return `
+      <div class="fert-panel">
+        <div class="por-header">
+          <span class="por-title">🌾 Agronomická karta &amp; živiny (Hnojivo / Biostimulant)</span>
+        </div>
+        ${elements ? `<div class="por-row"><span class="por-label">Účinné prvky / složení:</span> <strong class="por-val">${escapeHtml(elements)}</strong></div>` : ''}
+        ${tankmix ? `<div class="por-row"><span class="por-label">Doporučené tank-mixy:</span> <span class="por-val">${escapeHtml(tankmix)}</span></div>` : ''}
+        ${note ? `<div class="por-row"><span class="por-label">Poznámka:</span> <span class="por-val">${escapeHtml(note)}</span></div>` : ''}
+      </div>
     `;
   }
 

@@ -470,10 +470,10 @@ export function evaluateExpiration(expIso, todayMs = getTodayMidnightMs()) {
 }
 
 /**
- * Připraví obohacené položky s předpočítaným vyhledávacím indexem bez diakritiky
- * a volitelným spárováním s registrem ÚKZÚZ (POR).
+ * Připraví obohacené položky s předpočítaným vyhledávacím indexem bez diakritiky,
+ * spárováním s registrem ÚKZÚZ (POR) a poznámkami k hnojivům / biostimulantům.
  */
-export function enrichItems(rawItems, porMatcher = null) {
+export function enrichItems(rawItems, porMatcher = null, fertMatcher = null) {
   const porCache = new Map();
 
   return rawItems.map((item, idx) => {
@@ -482,22 +482,37 @@ export function enrichItems(rawItems, porMatcher = null) {
 
     let por = null;
     let porSearch = '';
-    if (porMatcher) {
-      const cacheKey = `${item.c}||${item.n}`;
-      if (porCache.has(cacheKey)) {
-        const cached = porCache.get(cacheKey);
-        por = cached.por;
-        porSearch = cached.porSearch;
-      } else {
+    let fert = null;
+    let fertSearch = '';
+    const cacheKey = `${item.c}||${item.n}`;
+
+    if (porCache.has(cacheKey)) {
+      const cached = porCache.get(cacheKey);
+      por = cached.por;
+      porSearch = cached.porSearch;
+      fert = cached.fert;
+      fertSearch = cached.fertSearch;
+    } else {
+      if (porMatcher) {
         por = porMatcher.match(item.c, item.n);
         porSearch = por ? porMatcher.searchText(por) : '';
-        porCache.set(cacheKey, { por, porSearch });
       }
+      if (fertMatcher) {
+        const matchFn = typeof fertMatcher === 'function' ? fertMatcher : fertMatcher.match?.bind(fertMatcher);
+        fert = matchFn ? matchFn(item.c, item.n) : null;
+        if (fert) {
+          fertSearch = normalizeText(
+            `${fert.elements || fert.prvky || ''} ${fert.tankmix || ''} ${fert.note || fert.poznamka || ''}`
+          );
+        }
+      }
+      porCache.set(cacheKey, { por, porSearch, fert, fertSearch });
     }
 
     const searchIndex =
       normalizeText(`${item.n} ${item.c} ${item.lot} ${item.ln} ${item.wh} ${item.loc} ${catInfo.label}`) +
-      (porSearch ? ` ${porSearch}` : '');
+      (porSearch ? ` ${porSearch}` : '') +
+      (fertSearch ? ` ${fertSearch}` : '');
 
     return {
       ...item,
@@ -505,6 +520,7 @@ export function enrichItems(rawItems, porMatcher = null) {
       _cat: catInfo,
       _locDisplay: locDisplay,
       _por: por,
+      _fert: fert,
       _search: searchIndex,
       _nameNorm: normalizeText(item.n),
     };
@@ -536,6 +552,7 @@ export function groupByProduct(items) {
         name: item.n,
         cat: item._cat,
         por: item._por || null,
+        fert: item._fert || null,
         totalQty: 0,
         batches: [],
       };

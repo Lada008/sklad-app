@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'sklad-app-v3';
+const CACHE_VERSION = 'sklad-app-v4';
 const APP_SHELL = [
   './',
   './index.html',
@@ -9,11 +9,13 @@ const APP_SHELL = [
   './assets/icon-512.png',
   './js/app.js',
   './js/domain.js',
+  './js/gas-api.js',
   './js/storage.js',
   './js/ukzuz.js',
   './js/wake-lock.js',
   './js/xlsx-parser.js',
   './js/ui-search.js',
+  './js/ui-orders.js',
   './js/ui-expirations.js',
   './js/ui-inventory.js',
   './js/ui-reports.js',

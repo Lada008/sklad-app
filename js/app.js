@@ -1,7 +1,8 @@
 /**
  * Skladový asistent — hlavní řídicí modul aplikace.
- * Automaticky načítá data skladu i denně synchronizovaný registr ÚKZÚZ (POR)
- * a páruje je podle očištěného názvu nebo registračního čísla.
+ * Automaticky synchronizuje sklad, zákazníky a objednávky s nasazeným
+ * Google Apps Script backendem (Google Tabulka), načítá denně aktualizovaný
+ * registr ÚKZÚZ (POR) a páruje je podle očištěného názvu nebo kódu položky.
  */
 
 import {
@@ -9,24 +10,33 @@ import {
   evaluateExpiration,
   filterByWarehouse,
   getTodayMidnightMs,
+  normalizeText,
 } from './domain.js';
 import {
+  loadCachedCustomers,
   loadCustomPacks,
+  loadFertilizerNotes,
   loadInventoryRecords,
   loadLocalPorData,
   loadLocalStockData,
   loadPrefs,
   loadReports,
+  saveCachedCustomers,
   saveCustomPacks,
+  saveFertilizerNotes,
+  saveLocalStockData,
   savePrefs,
 } from './storage.js';
 import {
   buildPorIndex,
   buildPorSearchText,
+  cleanBcProductName,
   matchProductToPor,
 } from './ukzuz.js';
+import { gasGetAll } from './gas-api.js';
 import { WakeLockController } from './wake-lock.js';
 import { createSearchTab } from './ui-search.js';
+import { createOrdersTab } from './ui-orders.js';
 import { createExpirationsTab } from './ui-expirations.js';
 import { createInventoryTab } from './ui-inventory.js';
 import { createReportsTab } from './ui-reports.js';
@@ -41,6 +51,12 @@ const state = {
   porMeta: null,
   porItems: [],
   porIndex: null,
+  lastSkladUpdate: null,
+  gasConnected: false,
+  gasSyncing: false,
+  customers: [],
+  orders: [],
+  fertilizerNotes: loadFertilizerNotes(),
   customPacks: loadCustomPacks(),
   inventory: loadInventoryRecords(),
   reports: loadReports(),
@@ -63,7 +79,7 @@ function toast(message, tone = 'default') {
     el.style.transform = 'translateY(6px)';
     el.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
     setTimeout(() => el.remove(), 220);
-  }, 3000);
+  }, 3200);
 }
 
 // --- Stav sítě ---
@@ -73,7 +89,7 @@ function updateNetworkIndicator() {
   if (!pill || !txt) return;
   const online = navigator.onLine;
   pill.classList.toggle('is-offline', !online);
-  txt.textContent = online ? 'Připraveno' : 'Offline režim';
+  txt.textContent = online ? (state.gasConnected ? 'Online · GAS' : 'Připraveno') : 'Offline režim';
 }
 
 // --- Wake Lock v hlavičce ---
@@ -106,6 +122,20 @@ wakeBtn?.addEventListener('click', () => {
     next ? 'success' : 'default'
   );
 });
+
+// --- Tlačítko Obnovit data v hlavičce ---
+const headerRefreshBtn = document.getElementById('header-refresh-btn');
+headerRefreshBtn?.addEventListener('click', () => {
+  syncFromGas({ silent: false });
+});
+
+function setHeaderRefreshLoading(loading) {
+  if (!headerRefreshBtn) return;
+  headerRefreshBtn.disabled = loading;
+  headerRefreshBtn.classList.toggle('is-loading', loading);
+  const lbl = headerRefreshBtn.querySelector('.refresh-label-long');
+  if (lbl) lbl.textContent = loading ? 'Obnovuji…' : 'Obnovit data';
+}
 
 // --- Globální filtr skladu ---
 function renderWarehouseBar() {
@@ -143,15 +173,16 @@ document.getElementById('warehouse-strip')?.addEventListener('click', (e) => {
   setPrefs({ warehouseFilter: btn.dataset.wh });
   renderWarehouseBar();
   updateBadges();
-  tabs.search.render();
-  tabs.expirations.render();
+  tabs.search?.render();
+  tabs.expirations?.render();
 });
 
 // --- Hlavička: čas aktualizace skladu + synchronizace ÚKZÚZ ---
 function renderHeaderMeta() {
   const stockEl = document.getElementById('header-updated-at');
   if (stockEl) {
-    stockEl.textContent = state.meta?.updatedAt ? `Sklad: ${state.meta.updatedAt}` : 'Načítám data…';
+    const ts = state.lastSkladUpdate || state.meta?.updatedAt;
+    stockEl.textContent = ts ? `Sklad: ${ts}` : 'Načítám data…';
   }
 
   const ukzuzEl = document.getElementById('header-ukzuz-at');
@@ -166,6 +197,7 @@ function renderHeaderMeta() {
       ukzuzSep.hidden = true;
     }
   }
+  updateNetworkIndicator();
 }
 
 // --- Odznaky na záložkách ---
@@ -189,6 +221,17 @@ function updateBadges() {
     expBadge.hidden = urgentCount === 0;
     expBadge.textContent = urgentCount > 99 ? '99+' : String(urgentCount);
     expBadge.classList.toggle('is-amber', expiredCount === 0);
+  }
+
+  const ordBadge = document.getElementById('badge-orders');
+  if (ordBadge) {
+    const activeOrders = (state.orders || []).filter((o) => {
+      const s = String(o.stav || 'Nová').toLowerCase();
+      return s.includes('nov') || s.includes('vychyst');
+    }).length;
+    ordBadge.hidden = activeOrders === 0;
+    ordBadge.textContent = activeOrders > 99 ? '99+' : String(activeOrders);
+    ordBadge.classList.add('is-amber');
   }
 
   const repBadge = document.getElementById('badge-reports');
@@ -220,7 +263,8 @@ function switchTab(tabId) {
   });
   const whWrap = document.getElementById('warehouse-strip-wrap');
   if (whWrap) {
-    whWrap.hidden = tabId === 'inventory' || tabId === 'data' || tabId === 'reports';
+    whWrap.hidden =
+      tabId === 'inventory' || tabId === 'data' || tabId === 'reports' || tabId === 'orders';
   }
   if (tabs[tabId]?.render) {
     tabs[tabId].render();
@@ -234,7 +278,7 @@ document.getElementById('app-nav')?.addEventListener('click', (e) => {
   switchTab(btn.dataset.tab);
 });
 
-// --- Spárování skladu s aktuálním registrem ÚKZÚZ ---
+// --- Spárování skladu s aktuálním registrem ÚKZÚZ a poznámkami hnojiv ---
 function buildPorMatcher() {
   if (!state.porIndex) return null;
   const idx = state.porIndex;
@@ -244,8 +288,43 @@ function buildPorMatcher() {
   };
 }
 
+function buildFertMatcher() {
+  const notes = state.fertilizerNotes || {};
+  const entries = Object.entries(notes);
+  if (!entries.length) return null;
+
+  const byKeyNorm = new Map();
+  const byNameNorm = new Map();
+  for (const [k, val] of entries) {
+    if (!val || typeof val !== 'object') continue;
+    const kn = normalizeText(k);
+    if (kn) byKeyNorm.set(kn, val);
+    if (val.nazev) {
+      const nn = normalizeText(cleanBcProductName(val.nazev) || val.nazev);
+      if (nn) byNameNorm.set(nn, val);
+    }
+  }
+
+  return {
+    match(code, name) {
+      const cStr = String(code || '').trim();
+      if (cStr && notes[cStr]) return notes[cStr];
+      const cn = normalizeText(cStr);
+      if (cn && byKeyNorm.has(cn)) return byKeyNorm.get(cn);
+
+      const cleaned = cleanBcProductName(name || '');
+      const nn = normalizeText(cleaned || name || '');
+      if (nn) {
+        if (byKeyNorm.has(nn)) return byKeyNorm.get(nn);
+        if (byNameNorm.has(nn)) return byNameNorm.get(nn);
+      }
+      return null;
+    },
+  };
+}
+
 function rebuildEnrichedStock() {
-  state.items = enrichItems(state.rawItems, buildPorMatcher());
+  state.items = enrichItems(state.rawItems, buildPorMatcher(), buildFertMatcher());
 }
 
 // --- Sdílený kontext pro moduly ---
@@ -265,8 +344,46 @@ function deleteCustomPack(code) {
   refreshAllViews();
 }
 
+function setFertilizerNote(key, noteObj) {
+  const k = String(key || '').trim();
+  if (!k) return;
+  const nazev = String(noteObj?.nazev ?? noteObj?.name ?? '').trim();
+  const prvky = String(noteObj?.prvky ?? noteObj?.elements ?? '').trim();
+  const tankmix = String(noteObj?.tankmix ?? '').trim();
+  const poznamka = String(noteObj?.poznamka ?? noteObj?.note ?? '').trim();
+  state.fertilizerNotes[k] = {
+    nazev,
+    name: nazev,
+    prvky,
+    elements: prvky,
+    tankmix,
+    poznamka,
+    note: poznamka,
+    updatedAt: new Date().toLocaleDateString('cs-CZ'),
+  };
+  saveFertilizerNotes(state.fertilizerNotes);
+  rebuildEnrichedStock();
+  refreshAllViews();
+}
+
+function deleteFertilizerNote(key) {
+  const k = String(key || '').trim();
+  delete state.fertilizerNotes[k];
+  saveFertilizerNotes(state.fertilizerNotes);
+  rebuildEnrichedStock();
+  refreshAllViews();
+}
+
+function rebuildStockEnrichment() {
+  rebuildEnrichedStock();
+  refreshAllViews();
+}
+
 function applyStockDataset(dataset) {
   state.meta = dataset.meta || {};
+  if (dataset.meta?.updatedAt) {
+    state.lastSkladUpdate = dataset.meta.updatedAt;
+  }
   state.rawItems = Array.isArray(dataset.items) ? dataset.items : [];
   rebuildEnrichedStock();
   refreshAllViews();
@@ -291,10 +408,12 @@ function refreshAllViews() {
 
 function reloadLocalState() {
   state.customPacks = loadCustomPacks();
+  state.fertilizerNotes = loadFertilizerNotes();
   state.inventory = loadInventoryRecords();
   state.reports = loadReports();
   state.prefs = loadPrefs();
   wakeController.setEnabled(state.prefs.wakeLockEnabled);
+  rebuildEnrichedStock();
   refreshAllViews();
 }
 
@@ -328,12 +447,84 @@ async function reloadDefaultPor() {
   }
 }
 
+// --- Synchronizace s Google Apps Script backendem (GET) ---
+async function syncFromGas({ silent = false } = {}) {
+  const gasUrl = state.prefs.gasUrl;
+  if (!gasUrl) {
+    if (!silent) toast('URL adresa Google Apps Scriptu není nastavena.', 'warn');
+    return false;
+  }
+
+  state.gasSyncing = true;
+  setHeaderRefreshLoading(true);
+
+  try {
+    const res = await gasGetAll(gasUrl);
+    state.gasConnected = true;
+
+    if (res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy') {
+      state.lastSkladUpdate = res.lastSkladUpdate;
+    }
+
+    if (Array.isArray(res.zakaznici) && res.zakaznici.length > 0) {
+      state.customers = res.zakaznici;
+      saveCachedCustomers(res.zakaznici).catch(() => {});
+    }
+
+    if (Array.isArray(res.objednavky)) {
+      state.orders = res.objednavky;
+    }
+
+    if (Array.isArray(res.sklad) && res.sklad.length > 0) {
+      const updatedAt =
+        res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy'
+          ? res.lastSkladUpdate
+          : state.meta?.updatedAt || new Date().toLocaleDateString('cs-CZ');
+      const dataset = {
+        meta: {
+          updatedAt,
+          source: 'Google Tabulka (GAS)',
+          rowCount: res.sklad.length,
+          productCount: new Set(res.sklad.map((i) => i.c)).size,
+        },
+        items: res.sklad,
+      };
+      state.meta = dataset.meta;
+      state.rawItems = dataset.items;
+      rebuildEnrichedStock();
+      saveLocalStockData(dataset).catch(() => {});
+    }
+
+    refreshAllViews();
+    if (!silent) {
+      toast(
+        `✅ Data obnovena (${state.rawItems.length} šarží, ${state.customers.length} zákazníků, ${state.orders.length} objednávek)`,
+        'success'
+      );
+    }
+    return true;
+  } catch (err) {
+    state.gasConnected = false;
+    renderHeaderMeta();
+    if (!silent) {
+      toast(`⚠️ Spojení s Google Tabulkou selhalo: ${err.message}`, 'danger');
+    }
+    return false;
+  } finally {
+    state.gasSyncing = false;
+    setHeaderRefreshLoading(false);
+  }
+}
+
 const ctx = {
   state,
   toast,
   setPrefs,
   setCustomPack,
   deleteCustomPack,
+  setFertilizerNote,
+  deleteFertilizerNote,
+  rebuildStockEnrichment,
   applyStockDataset,
   applyPorDataset,
   reloadDefaultStock,
@@ -341,6 +532,7 @@ const ctx = {
   reloadLocalState,
   refreshAllViews,
   updateBadges,
+  syncFromGas,
   openReportForItem(item) {
     switchTab('reports');
     tabs.reports.prefillFromItem(item);
@@ -353,11 +545,16 @@ const ctx = {
     switchTab('search');
     tabs.search.setSearchQuery(productName, true);
   },
+  openOrderForProduct(code, warehouseHint) {
+    switchTab('orders');
+    tabs.orders.prefillProductToOrder(code, warehouseHint);
+  },
 };
 
 // --- Inicializace ---
 async function bootstrap() {
   tabs.search = createSearchTab(ctx);
+  tabs.orders = createOrdersTab(ctx);
   tabs.expirations = createExpirationsTab(ctx);
   tabs.inventory = createInventoryTab(ctx);
   tabs.reports = createReportsTab(ctx);
@@ -377,24 +574,29 @@ async function bootstrap() {
     resultsEl.innerHTML = `
       <div class="loading-card">
         <div class="spinner"></div>
-        <div>Načítám data skladu a registr ÚKZÚZ…</div>
+        <div>Načítám data skladu, zákazníků a registr ÚKZÚZ…</div>
       </div>
     `;
   }
 
-  // Paralelní načtení skladu i registru ÚKZÚZ (POR)
-  const [stockResult, porResult] = await Promise.allSettled([
+  // 1. Rychlé načtení lokální cache (sklad, zákazníci, ÚKZÚZ) + paralelní živá synchronizace z Google Apps Scriptu
+  const [stockResult, porResult, cachedCustResult] = await Promise.allSettled([
     (async () => {
       const localStock = await loadLocalStockData();
-      if (localStock && Array.isArray(localStock.items)) return localStock;
+      if (localStock && Array.isArray(localStock.items) && localStock.items.length > 0) return localStock;
       return await fetchDefaultStock();
     })(),
     (async () => {
       const localPor = await loadLocalPorData();
-      if (localPor && Array.isArray(localPor.items)) return localPor;
+      if (localPor && Array.isArray(localPor.items) && localPor.items.length > 0) return localPor;
       return await fetchDefaultPor();
     })(),
+    loadCachedCustomers(),
   ]);
+
+  if (cachedCustResult.status === 'fulfilled' && Array.isArray(cachedCustResult.value)) {
+    state.customers = cachedCustResult.value;
+  }
 
   if (porResult.status === 'fulfilled' && porResult.value) {
     state.porMeta = porResult.value.meta || null;
@@ -405,12 +607,14 @@ async function bootstrap() {
   if (stockResult.status === 'fulfilled' && stockResult.value) {
     applyStockDataset(stockResult.value);
   } else {
-    state.meta = { updatedAt: 'Chyba načtení' };
+    state.meta = { updatedAt: 'Načítám z cloudu…' };
     refreshAllViews();
-    toast(`Nepodařilo se načíst sklad: ${stockResult.reason?.message || 'chyba'}`, 'danger');
   }
 
   switchTab('search');
+
+  // 2. Živý GET dotaz na Google Apps Script Web App pro aktuální sklad, zákazníky a objednávky
+  await syncFromGas({ silent: true });
 }
 
 bootstrap();

@@ -1,20 +1,25 @@
 /**
- * Lokální perzistence dat:
- * - IndexedDB pro lokálně nahraný Excel (velký dataset, přežije restart i offline)
- * - localStorage pro inventuru, hlášení nesrovnalostí, vlastní balení, historii hledání a předvolby
+ * Lokální perzistence dat a konfigurace Google Apps Script backendu:
+ * - IndexedDB pro lokální mezipaměť skladu, ÚKZÚZ POR a zákazníků (přežije offline režim)
+ * - localStorage pro konfiguraci GAS URL, e-mailu objednávek, poznámek k hnojivům,
+ *   inventury, hlášení nesrovnalostí, vlastních balení a předvoleb.
  */
+
+import { DEFAULT_GAS_URL, DEFAULT_NOTIFY_EMAIL } from './gas-api.js';
 
 const DB_NAME = 'sklad_asistent_db';
 const DB_VERSION = 1;
 const STORE_NAME = 'datasets';
 const STOCK_KEY = 'custom_stock_data';
 const POR_KEY = 'custom_por_data';
+const CUSTOMERS_KEY = 'cached_customers_data';
 
 const LS_KEYS = {
   customPacks: 'sklad_custom_packs_v1',
+  fertilizerNotes: 'sklad_fertilizer_notes_v1',
   inventory: 'sklad_inventory_v1',
   reports: 'sklad_reports_v1',
-  recentSearches: 'sklad_recent_searches_v1',
+  recentSearches: 'sklad_recentSearches_v1',
   prefs: 'sklad_prefs_v1',
 };
 
@@ -24,6 +29,9 @@ const DEFAULT_PREFS = {
   blindMode: true,
   wakeLockEnabled: true,
   batchSort: 'qty', // 'qty' | 'fefo'
+  gasUrl: DEFAULT_GAS_URL,
+  notifyEmail: DEFAULT_NOTIFY_EMAIL,
+  salesperson: '',
 };
 
 function openDb() {
@@ -106,6 +114,14 @@ export function clearLocalPorData() {
   return idbDelete(POR_KEY);
 }
 
+export function loadCachedCustomers() {
+  return idbGet(CUSTOMERS_KEY);
+}
+
+export function saveCachedCustomers(customers) {
+  return idbSet(CUSTOMERS_KEY, customers).catch(() => {});
+}
+
 function readJson(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -132,6 +148,14 @@ export function loadCustomPacks() {
 
 export function saveCustomPacks(packs) {
   return writeJson(LS_KEYS.customPacks, packs);
+}
+
+export function loadFertilizerNotes() {
+  return readJson(LS_KEYS.fertilizerNotes, {});
+}
+
+export function saveFertilizerNotes(notes) {
+  return writeJson(LS_KEYS.fertilizerNotes, notes);
 }
 
 export function loadInventoryRecords() {
@@ -191,20 +215,26 @@ export function clearRecentSearches() {
 
 export function loadPrefs() {
   const saved = readJson(LS_KEYS.prefs, {});
-  return { ...DEFAULT_PREFS, ...(saved && typeof saved === 'object' ? saved : {}) };
+  const merged = { ...DEFAULT_PREFS, ...(saved && typeof saved === 'object' ? saved : {}) };
+  if (!merged.gasUrl) merged.gasUrl = DEFAULT_GAS_URL;
+  if (!merged.notifyEmail) merged.notifyEmail = DEFAULT_NOTIFY_EMAIL;
+  return merged;
 }
 
 export function savePrefs(partial) {
   const next = { ...loadPrefs(), ...partial };
+  if (!next.gasUrl) next.gasUrl = DEFAULT_GAS_URL;
+  if (!next.notifyEmail) next.notifyEmail = DEFAULT_NOTIFY_EMAIL;
   writeJson(LS_KEYS.prefs, next);
   return next;
 }
 
 export function exportFullBackup() {
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     customPacks: loadCustomPacks(),
+    fertilizerNotes: loadFertilizerNotes(),
     inventory: loadInventoryRecords(),
     reports: loadReports(),
     prefs: loadPrefs(),
@@ -217,6 +247,9 @@ export function importFullBackup(data) {
   }
   if (data.customPacks && typeof data.customPacks === 'object') {
     saveCustomPacks(data.customPacks);
+  }
+  if (data.fertilizerNotes && typeof data.fertilizerNotes === 'object') {
+    saveFertilizerNotes(data.fertilizerNotes);
   }
   if (data.inventory && typeof data.inventory === 'object') {
     saveInventoryRecords(data.inventory);

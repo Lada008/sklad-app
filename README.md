@@ -51,9 +51,25 @@ Původní verze běžela na Streamlit Community Cloud, který se po nečinnosti 
   - Jedním kliknutím vyhledá dostupné položky z aktuálního skladu (`> 0 MJ`) a rozdělí je na **1. Přesná náhrada (stejná účinná látka + porovnání koncentrace)** a **2. Alternativa ze stejné chemické skupiny (stejný mechanismus účinku + stejná plodina)** při plném respektování aktivních filtrů (např. *Povolené v OP II. st.* nebo *Bezpečné pro včely*).
 - **Záložní ruční import:** V záložce **Data** zůstává tlačítko **„Nahrát soubor POR ručně“** (podporuje `.xlsx`, `.xml`, `.csv` i `.json`), kdyby ministerstvo v budoucnu změnilo URL exportu.
 
+### ☁️ Synchronizace přes Google Apps Script, Agromanuál, hnojiva a mobilní objednávky
+- **Živá synchronizace s Google Tabulkou (`AgroSklad_Databaze`):**
+  - Při startu aplikace i po kliknutí na **🔄 Obnovit data** se provede `GET` dotaz na nasazený Google Apps Script Web App (`sklad`, `zakaznici`, `objednavky`, `last_sklad_update`).
+  - Všechny `POST` požadavky používají `Content-Type: text/plain;charset=utf-8` a `redirect: "follow"` (bez CORS preflight `OPTIONS` blokace).
+  - V záložce **Data** lze URL adresu Google Apps Scriptu i cílový e-mail pro objednávky (`ladislav.penaz@lukrom.cz`) kdykoliv upravit.
+- **Okamžité propsání skladu z PC do mobilu (`update_sklad`):**
+  - Při nahrání `sklad.xlsx` na PC se sklad automaticky odešle přes `POST` (`{ "action": "update_sklad", "items": [...] }`) do Google Tabulky a aktualizuje `last_sklad_update` v horní liště všem obchodníkům.
+- **Agromanuál & poznámky k hnojivům:**
+  - U každé skladové položky (včetně hnojiv a položek nespárovaných s ÚKZÚZ) je tlačítko **📘 Otevřít v Agromanuálu**, které otevře vyhledávání očištěného názvu přípravku na `agromanual.cz`.
+  - Možnost ručně (přímo na kartě produktu nebo v záložce *Data*) či hromadně z Excelu doplnit **účinné prvky, doporučené tank-mixy a aplikační poznámky** k hnojivům a biostimulantům.
+- **Mobilní objednávky (`Objednávky`):**
+  - Našeptávač zákazníků z listu `Zakaznici` (podporuje plné sloupce z Business Centralu i zjednodušené tabulky s `Číslo` + `Název` nebo jen `Název`), řazený podle nejvyššího obratu.
+  - Po výběru zákazníka zobrazí kontakt, výchozí lokaci a diskrétní oranžové upozornění při `Zůstatek po splatnosti (LCY) > 0`.
+  - Výběr termínu doručení (**Do kdy doručit** + rychlá tlačítka `Ihned / Zítra`, `Do 3 dnů`, `Tento týden`), lokace závozu, položek ze skladu s kontrolou volného množství a odeslání objednávky (`action: "new_order"`) do Google Tabulky i na e-mail `ladislav.penaz@lukrom.cz`.
+  - Správa stavů objednávek (`Nová`, `Vychystává se`, `Expedováno`, `Storno`) a přiřazení šarže (`action: "update_order_status"`).
+
 ### ⚙️ Aktualizace dat z Business Central (`sklad.xlsx`)
 Data lze aktualizovat dvěma způsoby:
-1. **Přímo v prohlížeči (záložka Data):** Vyber nebo přetáhni čerstvý `sklad.xlsx` — vestavěný streaming parser ho rozbalí a uloží do `IndexedDB` za ~1–2 sekundy bez potřeby serveru.
+1. **Přímo v prohlížeči (záložka Data):** Vyber nebo přetáhni čerstvý `sklad.xlsx` — vestavěný streaming parser ho rozbalí, uloží do `IndexedDB` a rovnou synchronizuje do Google Tabulky (`update_sklad`) pro všechny mobilní terminály.
 2. **Pro celý tým přes GitHub:** Nahraj nový `sklad.xlsx` do repozitáře (větev `main`). GitHub Action automaticky přegeneruje kompaktní `data/stock.json` (~150 KB místo 4,6 MB) a nasadí novou verzi na GitHub Pages.
 
 ---
