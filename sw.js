@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'sklad-app-v16';
+const CACHE_VERSION = 'sklad-app-v17';
 const APP_SHELL = [
   './',
   './index.html',

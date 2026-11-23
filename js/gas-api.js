@@ -318,7 +318,7 @@ export function normalizeInventura(rawInventura = []) {
       r.poznamka ?? r['Poznámka'] ?? r.note ?? ''
     ).trim();
     const cas = formatSheetDateTimeCz(
-      r.datum ?? r.cas ?? r.timestamp ?? r['Datum'] ?? r['Čas'] ?? r.time ?? ''
+      r.cas_zapisu ?? r.datum ?? r.cas ?? r.timestamp ?? r['Datum'] ?? r['Čas'] ?? r.time ?? ''
     );
 
     out.push({
