@@ -30,6 +30,7 @@ import { buildAgromanualUrl } from './gas-api.js';
 import {
   CROP_CATEGORIES,
   CROP_CATEGORY_LABELS,
+  findCatalogAlternatives,
   findStockAlternatives,
   matchesActiveSubstances,
   matchesPorSafetyAndCrop,
@@ -349,6 +350,18 @@ export function createSearchTab(ctx) {
       const targetName = jumpProdBtn.dataset.jumpProduct;
       inStockOnly = true;
       renderSafetyChips();
+      setSearchQuery(targetName, true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const jumpCatalogBtn = e.target.closest('[data-jump-catalog-product]');
+    if (jumpCatalogBtn) {
+      const targetName = jumpCatalogBtn.dataset.jumpCatalogProduct;
+      inStockOnly = false;
+      renderSafetyChips();
+      renderSelectedUlTags();
+      renderCropTabs();
       setSearchQuery(targetName, true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -1195,10 +1208,18 @@ export function createSearchTab(ctx) {
 
     let altDrawerHtml = '';
     if (isAltOpen) {
+      const catalogAlts = findCatalogAlternatives(
+        por,
+        scopedStockProducts,
+        ctx.state.porItems || [],
+        activeFilters,
+        20
+      );
       altDrawerHtml = renderAlternativesDrawer(
         prod,
         exactSubstitutes,
         groupAlternatives,
+        catalogAlts,
         activeFilters,
         customPacks
       );
@@ -1223,8 +1244,8 @@ export function createSearchTab(ctx) {
 
         <div class="por-alt-bar">
           <button type="button" class="btn btn-sm por-alt-btn ${isAltOpen ? 'is-active' : ''}" data-toggle-alt="${escapeHtml(altKey)}">
-            <span>🔄 Alternativy skladem</span>
-            <span class="alt-count-badge">${totalAlts}</span>
+            <span>🔄 Alternativy (skladem + mimo sklad)</span>
+            <span class="alt-count-badge">${totalAlts} skladem</span>
           </button>
         </div>
         ${altDrawerHtml}
@@ -1232,7 +1253,14 @@ export function createSearchTab(ctx) {
     `;
   }
 
-  function renderAlternativesDrawer(prod, exactSubstitutes, groupAlternatives, activeFilters, customPacks) {
+  function renderAlternativesDrawer(
+    prod,
+    exactSubstitutes,
+    groupAlternatives,
+    catalogAlts,
+    activeFilters,
+    customPacks
+  ) {
     const activeFilterNotes = [];
     if (activeFilters.cropCategory && activeFilters.cropCategory !== 'all') {
       activeFilterNotes.push(CROP_CATEGORY_LABELS[activeFilters.cropCategory] || activeFilters.cropCategory);
@@ -1244,11 +1272,20 @@ export function createSearchTab(ctx) {
       ? `<div class="alt-filter-note">Respektovány aktivní filtry: <strong>${activeFilterNotes.map(escapeHtml).join(' · ')}</strong></div>`
       : '';
 
-    if (!exactSubstitutes.length && !groupAlternatives.length) {
+    const {
+      exactCatalog = [],
+      groupCatalog = [],
+      totalExactCatalog = 0,
+      totalGroupCatalog = 0,
+    } = catalogAlts || {};
+    const hasAnyStock = exactSubstitutes.length > 0 || groupAlternatives.length > 0;
+    const hasAnyCatalog = exactCatalog.length > 0 || groupCatalog.length > 0;
+
+    if (!hasAnyStock && !hasAnyCatalog) {
       return `
         <div class="alt-drawer">
           ${filterNoteHtml}
-          <div class="alt-empty">Pro tento přípravek momentálně není na vybraném skladu žádná dostupná alternativa (&gt; 0 MJ) vyhovující zvoleným filtrům.</div>
+          <div class="alt-empty">Pro tento přípravek nebyla nalezena žádná alternativa (skladem ani v registru ÚKZÚZ) vyhovující zvoleným filtrům.</div>
         </div>
       `;
     }
@@ -1281,10 +1318,36 @@ export function createSearchTab(ctx) {
       `;
     };
 
+    const renderCatalogAltItem = (por, detailLineHtml) => {
+      const badges = renderHeaderHazardBadges(por);
+      const agroUrl = buildAgromanualUrl(por.name, por.name);
+      return `
+        <div class="alt-card is-catalog-only">
+          <div class="alt-card-top">
+            <div>
+              <button type="button" class="alt-product-link" data-jump-catalog-product="${escapeHtml(por.name)}">
+                ${escapeHtml(por.name)} →
+              </button>
+              <div class="alt-card-sub">
+                ${por.reg ? `ÚKZÚZ: <span class="mono">${escapeHtml(por.reg)}</span>` : 'Registr ÚKZÚZ'}
+                ${por.status ? ` · ${escapeHtml(por.status)}` : ''}
+                · <a href="${escapeHtml(agroUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--brand-700);font-weight:700;">📘 Agromanuál ↗</a>
+              </div>
+            </div>
+            <div class="alt-qty-box">
+              <span class="exp-pill is-none">Není skladem</span>
+            </div>
+          </div>
+          <div class="alt-detail-line">${detailLineHtml}</div>
+          ${badges ? `<div class="por-pills" style="margin-top:4px;">${badges}</div>` : ''}
+        </div>
+      `;
+    };
+
     const exactHtml = exactSubstitutes.length
       ? `
         <div class="alt-group">
-          <div class="alt-group-title is-exact">✅ Přesná náhrada — stejná účinná látka (${exactSubstitutes.length})</div>
+          <div class="alt-group-title is-exact">✅ Přesná náhrada SKLADEM — stejná účinná látka (${exactSubstitutes.length})</div>
           ${exactSubstitutes
             .map(({ product: cand, sharedUl }) => {
               const ulComp = (cand.por?.ul || [])
@@ -1302,12 +1365,12 @@ export function createSearchTab(ctx) {
             .join('')}
         </div>
       `
-      : `<div class="alt-group"><div class="alt-group-title is-exact">✅ Přesná náhrada — stejná účinná látka (0 skladem)</div></div>`;
+      : `<div class="alt-group"><div class="alt-group-title is-exact">✅ Přesná náhrada SKLADEM — stejná účinná látka (0 skladem)</div></div>`;
 
     const groupHtml = groupAlternatives.length
       ? `
         <div class="alt-group">
-          <div class="alt-group-title is-moa">🧬 Alternativa ze stejné chemické skupiny + stejná plodina (${groupAlternatives.length})</div>
+          <div class="alt-group-title is-moa">🧬 Alternativa SKLADEM — stejná chemická skupina + plodina (${groupAlternatives.length})</div>
           ${groupAlternatives
             .map(({ product: cand, sharedGroups, sharedCrops }) => {
               const ulComp = (cand.por?.ul || [])
@@ -1326,11 +1389,60 @@ export function createSearchTab(ctx) {
       `
       : '';
 
+    const exactCatalogHtml = exactCatalog.length
+      ? `
+        <div class="alt-group">
+          <div class="alt-group-title is-catalog">📋 Přesná náhrada MIMO SKLAD (nemáme skladem) — stejná účinná látka (${totalExactCatalog}${totalExactCatalog > exactCatalog.length ? `, zobrazeno ${exactCatalog.length}` : ''})</div>
+          ${exactCatalog
+            .map(({ por: cPor, sharedUl }) => {
+              const ulComp = (cPor.ul || [])
+                .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+                .join(' + ');
+              const targetComp = sharedUl
+                .filter((s) => s.targetConc && s.candConc && s.targetConc !== s.candConc)
+                .map((s) => `původně ${escapeHtml(s.targetConc)}`)
+                .join(', ');
+              return renderCatalogAltItem(
+                cPor,
+                `Složení: ${ulComp}${targetComp ? ` <span class="alt-conc-diff">(${targetComp})</span>` : ' <span class="alt-conc-match">(shodná koncentrace)</span>'}`
+              );
+            })
+            .join('')}
+        </div>
+      `
+      : '';
+
+    const groupCatalogHtml = groupCatalog.length
+      ? `
+        <details class="por-legal-details" ${!hasAnyStock && !exactCatalog.length ? 'open' : ''}>
+          <summary>📋 Další alternativy MIMO SKLAD — stejná chemická skupina + plodina (${totalGroupCatalog}${totalGroupCatalog > groupCatalog.length ? `, prvních ${groupCatalog.length}` : ''})</summary>
+          <div class="alt-group" style="margin-top:8px;">
+            ${groupCatalog
+              .map(({ por: cPor, sharedGroups, sharedCrops }) => {
+                const ulComp = (cPor.ul || [])
+                  .map((u) => `<strong>${escapeHtml(u.n)}</strong>${u.c ? ` <span class="mono">${escapeHtml(u.c)}</span>` : ''}`)
+                  .join(' + ');
+                const cropsLabels = sharedCrops
+                  .map((c) => CROP_CATEGORY_LABELS[c] || c)
+                  .join(', ');
+                return renderCatalogAltItem(
+                  cPor,
+                  `Skupina: <strong>${escapeHtml(sharedGroups.join(', '))}</strong>${cropsLabels ? ` · Plodina: <strong>${escapeHtml(cropsLabels)}</strong>` : ''}<br>Účinná látka: ${ulComp}`
+                );
+              })
+              .join('')}
+          </div>
+        </details>
+      `
+      : '';
+
     return `
       <div class="alt-drawer">
         ${filterNoteHtml}
         ${exactHtml}
         ${groupHtml}
+        ${exactCatalogHtml}
+        ${groupCatalogHtml}
       </div>
     `;
   }

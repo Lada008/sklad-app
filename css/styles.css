@@ -2871,3 +2871,14 @@ button {
   background: #f6fdf7;
 }
 
+.alt-group-title.is-catalog {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+
+.alt-card.is-catalog-only {
+  border-style: dashed;
+  background: #fafafa;
+}
+

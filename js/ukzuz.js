@@ -366,6 +366,136 @@ export function findStockAlternatives(targetPor, targetCode, scopedStockProducts
   return { exactSubstitutes, groupAlternatives };
 }
 
+/**
+ * Vyhledá registrované alternativy v katalogu ÚKZÚZ, které aktuálně NEMÁME skladem,
+ * při respektování aktivních filtrů (plodina, OP II. st., bezpečné pro včely).
+ */
+export function findCatalogAlternatives(
+  targetPor,
+  scopedStockProducts,
+  allPorItems,
+  activeFilters = {},
+  limit = 20
+) {
+  if (!targetPor || !Array.isArray(allPorItems) || !allPorItems.length) {
+    return {
+      exactCatalog: [],
+      groupCatalog: [],
+      totalExactCatalog: 0,
+      totalGroupCatalog: 0,
+    };
+  }
+
+  const inStockPorNames = new Set();
+  for (const sp of scopedStockProducts || []) {
+    if (sp.totalQty > 0) {
+      if (sp.por?.name) inStockPorNames.add(normalizeText(sp.por.name));
+      inStockPorNames.add(normalizeText(sp.name));
+    }
+  }
+
+  const targetNameNorm = normalizeText(targetPor.name);
+  const targetUlMap = new Map();
+  for (const u of targetPor.ul || []) {
+    const key = normalizeText(u.n);
+    if (key) targetUlMap.set(key, u);
+  }
+
+  const targetGroups = new Set(
+    (targetPor.groups || [])
+      .map((g) => normalizeText(g))
+      .filter((g) => g && g !== 'other')
+  );
+
+  const activeCrop =
+    activeFilters.cropCategory && activeFilters.cropCategory !== 'all'
+      ? activeFilters.cropCategory
+      : null;
+  const targetCrops = new Set(targetPor.cg || []);
+
+  const exactAll = [];
+  const groupAll = [];
+
+  for (const por of allPorItems) {
+    if (!por || !por.name) continue;
+    const pNorm = normalizeText(por.name);
+    if (!pNorm || pNorm === targetNameNorm || inStockPorNames.has(pNorm)) continue;
+
+    if (!matchesPorSafetyAndCrop(por, activeFilters)) continue;
+
+    const candUlList = por.ul || [];
+    const sharedUl = [];
+    for (const cu of candUlList) {
+      const k = normalizeText(cu.n);
+      if (targetUlMap.has(k)) {
+        sharedUl.push({
+          name: cu.n,
+          candConc: cu.c || '',
+          targetConc: targetUlMap.get(k).c || '',
+        });
+      }
+    }
+
+    if (sharedUl.length > 0) {
+      const allTargetMatched =
+        targetUlMap.size > 0 &&
+        sharedUl.length === targetUlMap.size &&
+        candUlList.length === targetUlMap.size;
+      exactAll.push({
+        por,
+        sharedUl,
+        isFullCompositionMatch: allTargetMatched,
+      });
+      continue;
+    }
+
+    const candGroups = (por.groups || []).filter((g) => {
+      const gn = normalizeText(g);
+      return gn && gn !== 'other' && targetGroups.has(gn);
+    });
+    if (!candGroups.length) continue;
+
+    const candCrops = por.cg || [];
+    const sharedCrops = activeCrop
+      ? candCrops.includes(activeCrop)
+        ? [activeCrop]
+        : []
+      : candCrops.filter((c) => targetCrops.has(c));
+
+    if (targetCrops.size > 0 && sharedCrops.length === 0) continue;
+
+    groupAll.push({
+      por,
+      sharedGroups: candGroups,
+      sharedCrops,
+    });
+  }
+
+  exactAll.sort((a, b) => {
+    if (a.isFullCompositionMatch !== b.isFullCompositionMatch) {
+      return a.isFullCompositionMatch ? -1 : 1;
+    }
+    if (b.sharedUl.length !== a.sharedUl.length) {
+      return b.sharedUl.length - a.sharedUl.length;
+    }
+    return a.por.name.localeCompare(b.por.name, 'cs');
+  });
+
+  groupAll.sort((a, b) => {
+    if (b.sharedGroups.length !== a.sharedGroups.length) {
+      return b.sharedGroups.length - a.sharedGroups.length;
+    }
+    return a.por.name.localeCompare(b.por.name, 'cs');
+  });
+
+  return {
+    exactCatalog: exactAll.slice(0, limit),
+    groupCatalog: groupAll.slice(0, limit),
+    totalExactCatalog: exactAll.length,
+    totalGroupCatalog: groupAll.length,
+  };
+}
+
 // ===========================================================================
 // Záložní ruční nahrání souboru POR přímo v prohlížeči (.json / .xlsx / .xml / .csv)
 // ===========================================================================
