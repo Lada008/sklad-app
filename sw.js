@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'sklad-app-v5';
+const CACHE_VERSION = 'sklad-app-v6';
 const APP_SHELL = [
   './',
   './index.html',
@@ -48,38 +48,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Pro denně aktualizovaná data (stock.json a por_aktualni.json) preferuj síť, při offline vrať cache
-  if (
-    url.pathname.endsWith('stock.json') ||
-    url.pathname.endsWith('por_aktualni.json')
-  ) {
-    event.respondWith(
-      fetch(req, { cache: 'no-cache' })
-        .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match(req))
-    );
-    return;
-  }
-
-  // Pro aplikační soubory: cache-first + tichá aktualizace na pozadí (stale-while-revalidate)
+  // Network-first pro všechny soubory aplikace i data: při připojení vždy čerstvá verze, offline fallback z cache
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const networkFetch = fetch(req)
-        .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    fetch(req, { cache: 'no-cache' })
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });

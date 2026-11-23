@@ -6,17 +6,11 @@
 
 import { getCzechNowStr, getFyzickySklad, formatLocationPlain } from './domain.js';
 
-const REQUIRED_COLUMNS = [
+const CORE_REQUIRED_COLUMNS = [
   'Číslo zboží',
   'Popis',
-  'Kód kategorie zboží',
   'Kód lokace',
-  'Číslo šarže',
-  'Datum expirace',
   'Zůstatek (množství)',
-  'Zúčtovací datum',
-  'Otevřeno',
-  'Prodejce Kód',
 ];
 
 function isRowOpen(rawVal) {
@@ -320,27 +314,46 @@ export async function parseBusinessCentralXlsx(arrayBuffer, fileName = 'sklad.xl
     if (!colMap && (rowNum === 1 || totalRows === 0)) {
       const headers = parseRowCells(rowInner, sharedStrings, null);
       const byName = Object.create(null);
+      const byNorm = Object.create(null);
       for (const [col, val] of Object.entries(headers)) {
         const clean = String(val || '').trim();
-        if (clean) byName[clean] = col;
+        if (clean) {
+          byName[clean] = col;
+          byNorm[clean.toLowerCase().replace(/\s+/g, ' ')] = col;
+        }
       }
-      const missing = REQUIRED_COLUMNS.filter((c) => !byName[c]);
+      const findCol = (...candidates) => {
+        for (const name of candidates) {
+          if (byName[name]) return byName[name];
+          const norm = name.toLowerCase().replace(/\s+/g, ' ');
+          if (byNorm[norm]) return byNorm[norm];
+        }
+        return null;
+      };
+
+      const mapped = {
+        kod: findCol('Číslo zboží', 'Cislo zbozi'),
+        popis: findCol('Popis', 'Název', 'Nazev'),
+        kat: findCol('Kód kategorie zboží', 'Kod kategorie zbozi'),
+        lokace: findCol('Kód lokace', 'Kod lokace', 'Lokace'),
+        sarze: findCol('Číslo šarže', 'Cislo sarze', 'Šarže'),
+        exp: findCol('Datum expirace', 'Expirace'),
+        zustatek: findCol('Zůstatek (množství)', 'Zustatek (mnozstvi)', 'Zůstatek'),
+        zuct: findCol('Zúčtovací datum', 'Zuctovaci datum'),
+        otevreno: findCol('Otevřeno', 'Otevreno', 'Open'),
+        prodejce: findCol('Prodejce Kód', 'Prodejce Kod'),
+      };
+
+      const missing = [];
+      if (!mapped.kod) missing.push('Číslo zboží');
+      if (!mapped.popis) missing.push('Popis');
+      if (!mapped.lokace) missing.push('Kód lokace');
+      if (!mapped.zustatek) missing.push('Zůstatek (množství)');
       if (missing.length > 0) {
         throw new Error(`V Excelu chybí povinné sloupce: ${missing.join(', ')}`);
       }
-      colMap = {
-        kod: byName['Číslo zboží'],
-        popis: byName['Popis'],
-        kat: byName['Kód kategorie zboží'],
-        lokace: byName['Kód lokace'],
-        sarze: byName['Číslo šarže'],
-        exp: byName['Datum expirace'],
-        zustatek: byName['Zůstatek (množství)'],
-        zuct: byName['Zúčtovací datum'],
-        otevreno: byName['Otevřeno'],
-        prodejce: byName['Prodejce Kód'],
-      };
-      wantedCols = new Set(Object.values(colMap));
+      colMap = mapped;
+      wantedCols = new Set(Object.values(colMap).filter(Boolean));
       return;
     }
 
@@ -350,15 +363,15 @@ export async function parseBusinessCentralXlsx(arrayBuffer, fileName = 'sklad.xl
     const vals = parseRowCells(rowInner, sharedStrings, wantedCols);
 
     // Filtruj POUZE otevřené řádky (Otevřeno == 1) a zároveň Zůstatek (množství) > 0
-    if (!isRowOpen(vals[colMap.otevreno])) return;
+    if (colMap.otevreno && !isRowOpen(vals[colMap.otevreno])) return;
     const zustatek = parseNumber(vals[colMap.zustatek]);
     if (zustatek <= 0) return;
 
     const kod = String(vals[colMap.kod] || '').trim();
     const lokace = String(vals[colMap.lokace] || '').trim();
-    const sarze = String(vals[colMap.sarze] || '').trim() || '-';
-    const expIso = excelSerialToIso(vals[colMap.exp]);
-    const zuctIso = excelSerialToIso(vals[colMap.zuct]);
+    const sarze = colMap.sarze ? (String(vals[colMap.sarze] || '').trim() || '-') : '-';
+    const expIso = colMap.exp ? excelSerialToIso(vals[colMap.exp]) : null;
+    const zuctIso = colMap.zuct ? excelSerialToIso(vals[colMap.zuct]) : null;
 
     if (zuctIso) {
       const rKey = `${kod}\x1f${lokace}\x1f${sarze}`;
@@ -374,8 +387,8 @@ export async function parseBusinessCentralXlsx(arrayBuffer, fileName = 'sklad.xl
       existing.q += zustatek;
     } else {
       const popis = String(vals[colMap.popis] || '').trim();
-      const kat = String(vals[colMap.kat] || '').trim();
-      const prodejce = String(vals[colMap.prodejce] || '').trim();
+      const kat = colMap.kat ? String(vals[colMap.kat] || '').trim() : '';
+      const prodejce = colMap.prodejce ? String(vals[colMap.prodejce] || '').trim() : '';
       const fyzSklad = getFyzickySklad(lokace, prodejce);
       const lokNazev = formatLocationPlain(lokace, prodejce);
 
