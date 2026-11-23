@@ -501,19 +501,28 @@ export function createOrdersTab(ctx) {
       ? prepocetNaBaleni(pickedStockProduct.code, pickedStockProduct.name, curQty, ctx.state.customPacks)
       : '';
 
+    const quickCalcHtml = pkg.hasCarton
+      ? `<div class="inv-pack-helper" style="margin:6px 0;">
+           <span>📦 Rychlý přepočet:</span>
+           <input type="number" min="0" step="1" inputmode="decimal" placeholder="kart." data-ord-carton-mult="${pkg.cartonSize}" aria-label="Počet celých kartonů" />
+           <span><strong>kartonů</strong> (× <strong class="mono">${pkg.piecesPerCarton} ks</strong> = <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong>)</span>
+         </div>`
+      : '';
+
     const cartonBtns = pkg.hasCarton
       ? `
-          <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.cartonSize}">−1 karton (−${formatQty(pkg.cartonSize)} ${uom})</button>
-          <button type="button" class="stepper-btn stepper-btn-sm is-carton" data-ord-delta="${pkg.cartonSize}">+1 karton (+${formatQty(pkg.cartonSize)} ${uom})</button>
+          <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.cartonSize}">−${formatQty(pkg.cartonSize)} ${uom} (−1 kart.)</button>
+          <button type="button" class="stepper-btn stepper-btn-sm is-carton" data-ord-delta="${pkg.cartonSize}">+${formatQty(pkg.cartonSize)} ${uom} (+1 kart. · ${pkg.piecesPerCarton} ks)</button>
         `
       : '';
 
     itemQuickSteppers.hidden = false;
     itemQuickSteppers.innerHTML = `
+      ${quickCalcHtml}
       <div class="stepper-row stepper-row-compact">
+        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.unitSize}">−${formatQty(pkg.unitSize)} ${uom} (−1 ks)</button>
+        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${pkg.unitSize}">+${formatQty(pkg.unitSize)} ${uom} (+1 ks)</button>
         ${cartonBtns}
-        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.unitSize}">−1 ks (−${formatQty(pkg.unitSize)} ${uom})</button>
-        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${pkg.unitSize}">+1 ks (+${formatQty(pkg.unitSize)} ${uom})</button>
       </div>
       ${curPack ? `<div class="ord-qty-preview">Zadáno: <strong>${formatQty(curQty)} ${uom}</strong> = <strong>${escapeHtml(curPack)}</strong></div>` : ''}
     `;
@@ -527,6 +536,23 @@ export function createOrdersTab(ctx) {
     const next = Math.max(0, Math.round((cur + delta) * 1000) / 1000);
     itemQtyInput.value = next > 0 ? formatNumberRaw(next) : '';
     updateStockHint();
+  });
+
+  itemQuickSteppers.addEventListener('input', (e) => {
+    const multIn = e.target.closest('[data-ord-carton-mult]');
+    if (!multIn || !pickedStockProduct) return;
+    const cartonSize = parseFloat(multIn.dataset.ordCartonMult);
+    const count = parseFloat(String(multIn.value || '').replace(',', '.'));
+    if (!Number.isNaN(count) && count >= 0) {
+      const total = Math.round(count * cartonSize * 1000) / 1000;
+      itemQtyInput.value = total > 0 ? formatNumberRaw(total) : '';
+      const previewEl = itemQuickSteppers.querySelector('.ord-qty-preview');
+      const uom = getPackagingInfo(pickedStockProduct.code, pickedStockProduct.name, ctx.state.customPacks).uomDisplay;
+      if (previewEl && total > 0) {
+        const curPack = prepocetNaBaleni(pickedStockProduct.code, pickedStockProduct.name, total, ctx.state.customPacks);
+        previewEl.innerHTML = `Zadáno: <strong>${formatQty(total)} ${uom}</strong> = <strong>${escapeHtml(curPack)}</strong>`;
+      }
+    }
   });
 
   itemQtyInput.addEventListener('input', () => {

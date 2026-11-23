@@ -251,6 +251,7 @@ export function createDataTab(ctx) {
         ctx.state.gasConnected = true;
         ctx.state.lastSkladUpdate = gasUpdatedTime;
       } catch (gasErr) {
+        parsed.meta.syncedToGas = false;
         gasErrMsg = gasErr?.message || String(gasErr);
       }
 
@@ -918,7 +919,7 @@ export function createDataTab(ctx) {
             <div>
               <div style="font-weight:700;font-size:0.86rem;">${escapeHtml(nameByCode.get(code) || code)}</div>
               <div style="font-size:0.76rem;color:var(--ink-muted);">
-                <span class="mono">${escapeHtml(code)}</span> · 1 balení = <strong>${formatQty(cfg.velikost)}</strong> · obal: <strong>${escapeHtml(cfg.obal || 'automaticky')}</strong>
+                <span class="mono">${escapeHtml(code)}</span> · 1 ks = <strong>${formatQty(cfg.velikost)}</strong>${cfg.ksVKartonu ? ` · 1 karton = <strong>${cfg.ksVKartonu} ks (${formatQty(cfg.velikost * cfg.ksVKartonu)})</strong>` : ''} · obal: <strong>${escapeHtml(cfg.obal || 'automaticky')}</strong>
               </div>
             </div>
             <button type="button" class="btn btn-soft-danger btn-sm" data-del-pack="${escapeHtml(code)}">Smazat</button>

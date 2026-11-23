@@ -15,6 +15,7 @@ import {
   formatIsoDateCz,
   formatQty,
   formatQtyWithUnit,
+  getPackagingInfo,
   getTodayMidnightMs,
   groupByProduct,
   normalizeText,
@@ -434,13 +435,15 @@ export function createSearchTab(ctx) {
     e.preventDefault();
     const code = form.dataset.packForm;
     const size = parseFloat(form.querySelector('input[name="velikost"]').value.replace(',', '.'));
+    const ksVKartonuRaw = form.querySelector('input[name="ksVKartonu"]')?.value.trim();
+    const ksVKartonu = ksVKartonuRaw ? parseInt(ksVKartonuRaw, 10) : null;
     const obal = form.querySelector('select[name="obal"]').value;
     if (!size || size <= 0) {
-      ctx.toast('Zadej platnou velikost balení (> 0).', 'danger');
+      ctx.toast('Zadej platnou velikost 1 kusu (> 0).', 'danger');
       return;
     }
-    ctx.setCustomPack(code, size, obal);
-    ctx.toast('Nastavení balení uloženo', 'success');
+    ctx.setCustomPack(code, size, obal, ksVKartonu);
+    ctx.toast('Nastavení balení a kartonů uloženo', 'success');
   });
 
   function resetAgroFilters() {
@@ -1023,14 +1026,18 @@ export function createSearchTab(ctx) {
                  </details>
 
                  <details class="pack-details">
-                   <summary>⚙️ Upravit přepočet balení pro tento produkt</summary>
+                   <summary>⚙️ Upravit přepočet kusů a kartonů pro tento produkt</summary>
                    <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
                      <div class="field">
-                       <label>Velikost 1 balení (l / kg)</label>
+                       <label>Velikost 1 kusu (l / kg)</label>
                        <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
                      </div>
                      <div class="field">
-                       <label>Typ obalu</label>
+                       <label>Kusů v kartonu (balení)</label>
+                       <input class="input mono" type="number" name="ksVKartonu" step="1" min="1" value="${getPackagingInfo(prod.code, prod.name, customPacks).piecesPerCarton || ''}" placeholder="např. 4 nebo 12" />
+                     </div>
+                     <div class="field" style="grid-column: 1 / -1;">
+                       <label>Typ jednotkového obalu</label>
                        <select class="select" name="obal">
                          ${PACKAGING_TYPES.map((opt) => `<option value="${opt.value}" ${opt.value === defaultObal ? 'selected' : ''}>${opt.label}</option>`).join('')}
                        </select>

@@ -34,7 +34,7 @@ import {
   cleanBcProductName,
   matchProductToPor,
 } from './ukzuz.js';
-import { gasGetAll } from './gas-api.js';
+import { gasGetAll, gasUpdateSklad } from './gas-api.js';
 import { WakeLockController } from './wake-lock.js';
 import { createSearchTab } from './ui-search.js';
 import { createOrdersTab } from './ui-orders.js';
@@ -335,8 +335,11 @@ function setPrefs(partial) {
   state.prefs = savePrefs(partial);
 }
 
-function setCustomPack(code, velikost, obal) {
-  state.customPacks[String(code)] = { velikost: Number(velikost), obal: obal || 'automaticky' };
+function setCustomPack(code, velikost, obal, ksVKartonu = null) {
+  const entry = { velikost: Number(velikost), obal: obal || 'automaticky' };
+  const pcs = Number(ksVKartonu);
+  if (pcs > 1) entry.ksVKartonu = Math.round(pcs);
+  state.customPacks[String(code)] = entry;
   saveCustomPacks(state.customPacks);
   refreshAllViews();
 }
@@ -656,6 +659,25 @@ async function bootstrap() {
 
   let gasOk = false;
   if (navigator.onLine !== false) {
+    // Pokud byl na tomto PC nahrán novější sklad.xlsx, který se ještě nestihl odeslat do cloudu, nejdřív ho odešli
+    const pendingLocal = await loadLocalStockData().catch(() => null);
+    if (
+      pendingLocal &&
+      pendingLocal.meta?.syncedToGas === false &&
+      Array.isArray(pendingLocal.items) &&
+      pendingLocal.items.length > 0 &&
+      state.prefs.gasUrl
+    ) {
+      try {
+        const resp = await gasUpdateSklad(pendingLocal.items, state.prefs.gasUrl);
+        pendingLocal.meta.syncedToGas = true;
+        if (resp?.last_sklad_update) pendingLocal.meta.updatedAt = resp.last_sklad_update;
+        await saveLocalStockData(pendingLocal);
+        toast(`✅ Sklad z PC automaticky odeslán do cloudu (${pendingLocal.items.length} položek)`, 'success');
+      } catch {
+        // Zůstane uloženo lokálně a zkusí se znovu příště
+      }
+    }
     gasOk = await syncFromGas({ silent: true });
   }
 

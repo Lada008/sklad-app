@@ -310,14 +310,18 @@ export function getPackagingInfo(kod, popis, customPacks = {}) {
     unitSize = 1.0;
   }
 
-  // Pravidla kartonů podle velikosti jednotkového balení
+  // Pravidla kartonů: nejprve vlastní počet kusů v kartonu (pokud je definován), jinak výchozí pravidla podle litráže/gramáže
   let piecesPerCarton = null;
   let cartonSize = null;
-  const is5 = Math.abs(unitSize - 5) < 0.001;
-  const is1 = Math.abs(unitSize - 1) < 0.001;
-  const is10 = Math.abs(unitSize - 10) < 0.001;
+  const customPcs = Number(custom?.ksVKartonu || custom?.piecesPerCarton || 0);
 
-  if (uom === 'l' || uom === 'kg') {
+  if (customPcs > 1) {
+    piecesPerCarton = Math.round(customPcs);
+    cartonSize = Math.round(unitSize * piecesPerCarton * 1000) / 1000;
+  } else if (uom === 'l' || uom === 'kg') {
+    const is5 = Math.abs(unitSize - 5) < 0.001;
+    const is1 = Math.abs(unitSize - 1) < 0.001;
+    const is10 = Math.abs(unitSize - 10) < 0.001;
     if (is5) {
       piecesPerCarton = 4;
       cartonSize = 20;
