@@ -24,6 +24,7 @@ import {
   saveCachedCustomers,
   saveCustomPacks,
   saveFertilizerNotes,
+  saveInventoryRecords,
   saveLocalStockData,
   savePrefs,
 } from './storage.js';
@@ -52,10 +53,12 @@ const state = {
   porItems: [],
   porIndex: null,
   lastSkladUpdate: null,
+  lastGasSyncAt: 0,
   gasConnected: false,
   gasSyncing: false,
   customers: [],
   orders: [],
+  cloudInventory: [],
   fertilizerNotes: loadFertilizerNotes(),
   customPacks: loadCustomPacks(),
   inventory: loadInventoryRecords(),
@@ -447,6 +450,47 @@ async function reloadDefaultPor() {
   }
 }
 
+// --- Sloučení inventury z Google Tabulky (GET pole `inventura`) s lokálními neodeslanými záznamy ---
+function buildInventoryKey(code, loc, lot, exp) {
+  return `${String(code || '').trim()}|${String(loc || '').trim()}|${String(lot || '-').trim()}|${String(exp || '').trim()}`;
+}
+
+function mergeCloudInventory(cloudRows = []) {
+  state.cloudInventory = Array.isArray(cloudRows) ? cloudRows : [];
+
+  const nextInv = {};
+  // 1. Ponech lokální neodeslané záznamy (čekající na odeslání z offline režimu)
+  for (const [k, rec] of Object.entries(state.inventory || {})) {
+    if (rec && rec.synced === false) {
+      nextInv[k] = rec;
+    }
+  }
+
+  // 2. Zapiš všechny záznamy načtené z Google Tabulky (novější přepíšou starší pro stejnou šarži)
+  for (const row of state.cloudInventory) {
+    const key = buildInventoryKey(row.cislo_zbozi, row.lokace, row.sarze, row.expirace);
+    nextInv[key] = {
+      key,
+      time: row.cas || '',
+      section: row.lokace || '',
+      code: row.cislo_zbozi,
+      name: row.nazev,
+      loc: row.lokace,
+      lot: row.sarze,
+      exp: row.expirace || '',
+      system: row.stav_bc,
+      actual: row.skutecny_stav,
+      diff: row.rozdil,
+      kartonyText: row.kartony_text || '',
+      note: row.poznamka || '',
+      synced: true,
+    };
+  }
+
+  state.inventory = nextInv;
+  saveInventoryRecords(state.inventory);
+}
+
 // --- Synchronizace s Google Apps Script backendem (GET) ---
 async function syncFromGas({ silent = false } = {}) {
   const gasUrl = state.prefs.gasUrl;
@@ -461,6 +505,7 @@ async function syncFromGas({ silent = false } = {}) {
   try {
     const res = await gasGetAll(gasUrl);
     state.gasConnected = true;
+    state.lastGasSyncAt = Date.now();
 
     if (res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy') {
       state.lastSkladUpdate = res.lastSkladUpdate;
@@ -473,6 +518,10 @@ async function syncFromGas({ silent = false } = {}) {
 
     if (Array.isArray(res.objednavky)) {
       state.orders = res.objednavky;
+    }
+
+    if (Array.isArray(res.inventura)) {
+      mergeCloudInventory(res.inventura);
     }
 
     if (Array.isArray(res.sklad) && res.sklad.length > 0) {
@@ -498,7 +547,7 @@ async function syncFromGas({ silent = false } = {}) {
     refreshAllViews();
     if (!silent) {
       toast(
-        `✅ Data obnovena (${state.rawItems.length} šarží, ${state.customers.length} zákazníků, ${state.orders.length} objednávek)`,
+        `✅ Data obnovena z cloudu (${state.rawItems.length} šarží, ${state.cloudInventory.length} inventur, ${state.orders.length} objednávek)`,
         'success'
       );
     }
@@ -562,8 +611,21 @@ async function bootstrap() {
 
   wakeController.init();
   updateNetworkIndicator();
-  window.addEventListener('online', updateNetworkIndicator);
+  window.addEventListener('online', () => {
+    updateNetworkIndicator();
+    syncFromGas({ silent: true });
+  });
   window.addEventListener('offline', updateNetworkIndicator);
+  document.addEventListener('visibilitychange', () => {
+    if (
+      document.visibilityState === 'visible' &&
+      navigator.onLine &&
+      !state.gasSyncing &&
+      Date.now() - state.lastGasSyncAt > 15000
+    ) {
+      syncFromGas({ silent: true });
+    }
+  });
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -574,47 +636,58 @@ async function bootstrap() {
     resultsEl.innerHTML = `
       <div class="loading-card">
         <div class="spinner"></div>
-        <div>Načítám data skladu, zákazníků a registr ÚKZÚZ…</div>
+        <div>Stahuji čerstvá data skladu, inventury a registru ÚKZÚZ z cloudu…</div>
       </div>
     `;
   }
 
-  // 1. Rychlé načtení lokální cache (sklad, zákazníci, ÚKZÚZ) + paralelní živá synchronizace z Google Apps Scriptu
-  const [stockResult, porResult, cachedCustResult] = await Promise.allSettled([
-    (async () => {
-      const localStock = await loadLocalStockData();
-      if (localStock && Array.isArray(localStock.items) && localStock.items.length > 0) return localStock;
-      return await fetchDefaultStock();
-    })(),
-    (async () => {
-      const localPor = await loadLocalPorData();
-      if (localPor && Array.isArray(localPor.items) && localPor.items.length > 0) return localPor;
-      return await fetchDefaultPor();
-    })(),
-    loadCachedCustomers(),
-  ]);
+  // 1. Registr ÚKZÚZ (POR) načti paralelně s živým GET dotazem na Google Apps Script
+  const porPromise = (async () => {
+    const localPor = await loadLocalPorData();
+    if (localPor && Array.isArray(localPor.items) && localPor.items.length > 0) return localPor;
+    return await fetchDefaultPor();
+  })().catch(() => null);
 
-  if (cachedCustResult.status === 'fulfilled' && Array.isArray(cachedCustResult.value)) {
-    state.customers = cachedCustResult.value;
+  let gasOk = false;
+  if (navigator.onLine !== false) {
+    gasOk = await syncFromGas({ silent: true });
   }
 
-  if (porResult.status === 'fulfilled' && porResult.value) {
-    state.porMeta = porResult.value.meta || null;
-    state.porItems = Array.isArray(porResult.value.items) ? porResult.value.items : [];
+  const porData = await porPromise;
+  if (porData) {
+    state.porMeta = porData.meta || null;
+    state.porItems = Array.isArray(porData.items) ? porData.items : [];
     state.porIndex = state.porItems.length ? buildPorIndex(state.porItems) : null;
   }
 
-  if (stockResult.status === 'fulfilled' && stockResult.value) {
-    applyStockDataset(stockResult.value);
+  // 2. Fallback na lokální mezipaměť / výchozí stock.json POUZE pokud je offline nebo GAS selhal / vrátil prázdný sklad
+  if (!gasOk || state.rawItems.length === 0) {
+    const [stockResult, cachedCustResult] = await Promise.allSettled([
+      (async () => {
+        const localStock = await loadLocalStockData();
+        if (localStock && Array.isArray(localStock.items) && localStock.items.length > 0) return localStock;
+        return await fetchDefaultStock();
+      })(),
+      loadCachedCustomers(),
+    ]);
+
+    if (state.customers.length === 0 && cachedCustResult.status === 'fulfilled' && Array.isArray(cachedCustResult.value)) {
+      state.customers = cachedCustResult.value;
+    }
+
+    if (stockResult.status === 'fulfilled' && stockResult.value) {
+      applyStockDataset(stockResult.value);
+    } else {
+      state.meta = { updatedAt: 'Offline — žádná data' };
+      refreshAllViews();
+    }
   } else {
-    state.meta = { updatedAt: 'Načítám z cloudu…' };
+    // GAS vrátil čerstvá data — znovu obohať po načtení ÚKZÚZ POR
+    rebuildEnrichedStock();
     refreshAllViews();
   }
 
   switchTab('search');
-
-  // 2. Živý GET dotaz na Google Apps Script Web App pro aktuální sklad, zákazníky a objednávky
-  await syncFromGas({ silent: true });
 }
 
 bootstrap();

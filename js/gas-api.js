@@ -278,7 +278,82 @@ export function normalizeOrders(rawOrders = []) {
 }
 
 /**
- * Zavolá GET na Google Apps Script Web App a vrátí `{ lastSkladUpdate, sklad, zakaznici, objednavky }`.
+ * Normalizuje záznamy inventury vrácené z Google Apps Scriptu (list `Inventura`).
+ */
+export function normalizeInventura(rawInventura = []) {
+  if (!Array.isArray(rawInventura)) return [];
+  const out = [];
+  for (const r of rawInventura) {
+    if (!r || typeof r !== 'object') continue;
+    const cislo_zbozi = String(
+      r.cislo_zbozi ?? r['Číslo zboží'] ?? r['Kód zboží'] ?? r.code ?? r.c ?? ''
+    ).trim();
+    const nazev = String(
+      r.nazev ?? r['Název'] ?? r['Popis'] ?? r.name ?? r.n ?? ''
+    ).trim();
+    if (!cislo_zbozi && !nazev) continue;
+
+    const lokace = String(
+      r.lokace ?? r['Lokace'] ?? r['Kód lokace'] ?? r.loc ?? ''
+    ).trim();
+    const sarzeRaw = r.sarze ?? r['Šarže'] ?? r['Číslo šarže'] ?? r.lot;
+    const sarze = sarzeRaw !== null && sarzeRaw !== undefined && String(sarzeRaw).trim() !== ''
+      ? String(sarzeRaw).trim()
+      : '-';
+    const expRaw = r.expirace ?? r['Expirace'] ?? r['Datum expirace'] ?? r.exp ?? '';
+    const expirace = normalizeSheetDateIso(expRaw) || String(expRaw || '').trim();
+    const stav_bc = parseLooseNumber(r.stav_bc ?? r['Stav BC'] ?? r['Systém'] ?? r.system ?? 0);
+    const skutecny_stav = parseLooseNumber(
+      r.skutecny_stav ?? r['Skutečný stav'] ?? r['Fyzicky'] ?? r.actual ?? 0
+    );
+    const rozdilRaw = r.rozdil ?? r['Rozdíl'] ?? r.diff;
+    const rozdil =
+      rozdilRaw !== undefined && rozdilRaw !== null && String(rozdilRaw).trim() !== ''
+        ? parseLooseNumber(rozdilRaw)
+        : Math.round((skutecny_stav - stav_bc) * 1000) / 1000;
+    const kartony_text = String(
+      r.kartony_text ?? r['Kartony'] ?? r['Kartony / balení'] ?? r.kartony ?? ''
+    ).trim();
+    const poznamka = String(
+      r.poznamka ?? r['Poznámka'] ?? r.note ?? ''
+    ).trim();
+    const cas = formatSheetDateTimeCz(
+      r.datum ?? r.cas ?? r.timestamp ?? r['Datum'] ?? r['Čas'] ?? r.time ?? ''
+    );
+
+    out.push({
+      cislo_zbozi,
+      nazev,
+      lokace,
+      sarze,
+      expirace,
+      stav_bc: Math.round(stav_bc * 1000) / 1000,
+      skutecny_stav: Math.round(skutecny_stav * 1000) / 1000,
+      rozdil: Math.round(rozdil * 1000) / 1000,
+      kartony_text,
+      poznamka,
+      cas,
+      synced: true,
+    });
+  }
+  return out;
+}
+
+function parseGasJsonResponse(rawText, contextLabel) {
+  const trimmed = String(rawText || '').trim();
+  if (!trimmed) {
+    throw new Error(`Prázdná odpověď z Google Apps Scriptu (${contextLabel}).`);
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const snippet = trimmed.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+    throw new Error(`Neplatná JSON odpověď z Google Apps Scriptu (${contextLabel}): ${snippet}`);
+  }
+}
+
+/**
+ * Zavolá GET na Google Apps Script Web App a vrátí `{ lastSkladUpdate, sklad, zakaznici, objednavky, inventura }`.
  */
 export async function gasGetAll(gasUrl = DEFAULT_GAS_URL) {
   const url = String(gasUrl || DEFAULT_GAS_URL).trim();
@@ -291,7 +366,7 @@ export async function gasGetAll(gasUrl = DEFAULT_GAS_URL) {
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} při načítání z Google Apps Scriptu`);
   }
-  const data = await res.json();
+  const data = parseGasJsonResponse(await res.text(), 'GET');
   if (data.status && data.status !== 'ok') {
     throw new Error(data.message || 'Google Apps Script vrátil chybu.');
   }
@@ -301,6 +376,7 @@ export async function gasGetAll(gasUrl = DEFAULT_GAS_URL) {
     sklad: normalizeGasStockItems(data.sklad || []),
     zakaznici: normalizeCustomers(data.zakaznici || []),
     objednavky: normalizeOrders(data.objednavky || []),
+    inventura: normalizeInventura(data.inventura || []),
   };
 }
 
@@ -321,7 +397,7 @@ export async function gasPostAction(payload, gasUrl = DEFAULT_GAS_URL) {
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} při odesílání do Google Apps Scriptu`);
   }
-  const data = await res.json();
+  const data = parseGasJsonResponse(await res.text(), `POST ${payload?.action || ''}`);
   if (data.status && data.status !== 'ok') {
     throw new Error(data.message || 'Chyba při zpracování v Google Apps Scriptu.');
   }
@@ -329,7 +405,24 @@ export async function gasPostAction(payload, gasUrl = DEFAULT_GAS_URL) {
 }
 
 export async function gasUpdateSklad(items, gasUrl = DEFAULT_GAS_URL) {
-  return await gasPostAction({ action: 'update_sklad', items }, gasUrl);
+  // Odesílej pouze kompaktní sloučené skladové řádky (nikdy interní vyhledávací/ÚKZÚZ pole)
+  const cleanItems = (items || []).map((i) => ({
+    c: i.c || '',
+    n: i.n || '',
+    cat: i.cat || '',
+    loc: i.loc || '',
+    wh: i.wh || '',
+    ln: i.ln || '',
+    lot: i.lot || '-',
+    exp: i.exp || null,
+    q: Number(i.q) || 0,
+    rec: i.rec || null,
+  }));
+  return await gasPostAction({ action: 'update_sklad', items: cleanItems }, gasUrl);
+}
+
+export async function gasSaveInventura(records, gasUrl = DEFAULT_GAS_URL) {
+  return await gasPostAction({ action: 'save_inventura', records }, gasUrl);
 }
 
 export async function gasUpdateZakaznici(customers, gasUrl = DEFAULT_GAS_URL) {

@@ -14,6 +14,7 @@ import {
   filterByWarehouse,
   formatIsoDateCz,
   formatQty,
+  formatQtyWithUnit,
   getTodayMidnightMs,
   groupByProduct,
   normalizeText,
@@ -911,7 +912,7 @@ export function createSearchTab(ctx) {
                 <div class="batch-row ${expInfo.status === 'expired' ? 'is-expired' : ''}">
                   <div class="batch-top">
                     <span class="batch-loc">${escapeHtml(b._locDisplay)}</span>
-                    <span class="batch-qty num">${formatQty(b.q)} j. <span class="batch-qty-pack">(${escapeHtml(bPack)})</span></span>
+                    <span class="batch-qty num">${formatQtyWithUnit(b.q, prod.name)} <span class="batch-qty-pack">(= ${escapeHtml(bPack)})</span></span>
                   </div>
                   <div class="batch-meta">
                     <div class="batch-meta-items">
@@ -967,10 +968,10 @@ export function createSearchTab(ctx) {
         <div class="stock-metrics">
           <div class="metric-tile">
             <div class="metric-label">Skladem celkem</div>
-            <div class="metric-value num" style="${prod.totalQty <= 0 ? 'color:var(--ink-muted)' : ''}">${formatQty(prod.totalQty)} j.</div>
+            <div class="metric-value num" style="${prod.totalQty <= 0 ? 'color:var(--ink-muted)' : ''}">${formatQtyWithUnit(prod.totalQty, prod.name)}</div>
           </div>
           <div class="metric-tile">
-            <div class="metric-label">V přepočtu</div>
+            <div class="metric-label">Kartony &amp; kusy</div>
             <div class="metric-value is-pack">${escapeHtml(packText)}</div>
           </div>
         </div>
@@ -1263,7 +1264,7 @@ export function createSearchTab(ctx) {
               </div>
             </div>
             <div class="alt-qty-box">
-              <div class="alt-qty-val num">${formatQty(cand.totalQty)} j.</div>
+              <div class="alt-qty-val num">${formatQtyWithUnit(cand.totalQty, cand.name)}</div>
               <div class="alt-qty-pack">${escapeHtml(pack)}</div>
             </div>
           </div>

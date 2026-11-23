@@ -2746,3 +2746,128 @@ button {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Carton Steppers, Order Quick Controls & Cloud Inventory Table (PC + Mobile)
+   ========================================================================== */
+
+.stepper-btn {
+  padding: 5px 6px;
+  line-height: 1.2;
+}
+
+.stepper-btn small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.stepper-btn.is-carton {
+  background: var(--brand-50);
+  border-color: var(--brand-600);
+  color: var(--brand-900);
+}
+
+.stepper-btn.is-carton:hover {
+  background: var(--brand-100);
+}
+
+.stepper-row-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+
+.stepper-btn-sm {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 0.76rem;
+}
+
+.stepper-btn-xs {
+  min-height: 28px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+}
+
+.ord-quick-steppers {
+  margin-top: 6px;
+}
+
+.ord-qty-preview {
+  font-size: 0.78rem;
+  color: var(--brand-900);
+  margin-top: 4px;
+}
+
+.ord-cart-steppers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.inv-live-pack {
+  font-size: 0.82rem;
+  color: var(--brand-900);
+  min-height: 1.1em;
+  margin: 4px 0 6px;
+}
+
+.inv-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.inv-cloud-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  background: var(--surface);
+}
+
+.inv-cloud-table th {
+  text-align: left;
+  padding: 9px 10px;
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.inv-cloud-table th.num,
+.inv-cloud-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.inv-cloud-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.inv-cloud-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.inv-cloud-table tbody tr.is-row-manko {
+  background: #fff5f5;
+}
+
+.inv-cloud-table tbody tr.is-row-prebytek {
+  background: #fffbeb;
+}
+
+.inv-cloud-table tbody tr.is-row-ok {
+  background: #f6fdf7;
+}
+

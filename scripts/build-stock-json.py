@@ -39,9 +39,21 @@ REQUIRED_COLUMNS = [
     "Datum expirace",
     "Zůstatek (množství)",
     "Zúčtovací datum",
-    "Množství",
+    "Otevřeno",
     "Prodejce Kód",
 ]
+
+
+def is_row_open(raw_val: str | None) -> bool:
+    if raw_val is None:
+        return False
+    s = str(raw_val).strip().lower()
+    if s in ("1", "true", "ano"):
+        return True
+    try:
+        return float(s.replace(",", ".")) == 1.0
+    except ValueError:
+        return False
 
 
 def excel_serial_to_iso(raw_val: str | None) -> str | None:
@@ -111,9 +123,17 @@ def resolve_first_sheet_path(zf: zipfile.ZipFile) -> str:
     names = set(zf.namelist())
     if "xl/workbook.xml" in names and "xl/_rels/workbook.xml.rels" in names:
         wb_root = ET.fromstring(zf.read("xl/workbook.xml"))
-        sheet_el = wb_root.find(f".//{NS}sheets/{NS}sheet")
-        if sheet_el is not None:
-            rid = sheet_el.attrib.get(f"{REL_NS}id")
+        sheet_els = wb_root.findall(f".//{NS}sheets/{NS}sheet")
+        chosen_el = None
+        for el in sheet_els:
+            if chosen_el is None:
+                chosen_el = el
+            sname = (el.attrib.get("name") or "").strip().lower()
+            if sname in ("položky zboží", "polozky zbozi"):
+                chosen_el = el
+                break
+        if chosen_el is not None:
+            rid = chosen_el.attrib.get(f"{REL_NS}id")
             if rid:
                 rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
                 for rel in rels_root.findall(f"{PKG_REL_NS}Relationship"):
@@ -173,8 +193,8 @@ def build_stock_data(excel_path: str) -> dict:
 
     # Poslední příjem podle (kod, lokace, sarze) -> ISO datum
     last_receipt: dict[tuple[str, str, str], str] = {}
-    # Aktivní zůstatky podle (kod, popis, kat, lokace, fyzicky_sklad, lokace_nazev, sarze, exp_iso)
-    grouped: dict[tuple[str, str, str, str, str, str, str, str | None], float] = defaultdict(float)
+    # Aktivní zůstatky seskupené výhradně podle (kod, lokace, sarze, exp_iso)
+    grouped: dict[tuple[str, str, str, str | None], dict] = {}
 
     with zipfile.ZipFile(excel_path, "r") as zf:
         sheet_path = resolve_first_sheet_path(zf)
@@ -213,54 +233,58 @@ def build_stock_data(excel_path: str) -> dict:
                     row_vals[col] = extract_cell_value(cell, shared_strings)
             elem.clear()
 
-            mnozstvi = parse_number(row_vals.get(col_map["Množství"]))
+            # Filtruj POUZE řádky, kde Otevřeno == 1 a zároveň Zůstatek (množství) > 0
+            if not is_row_open(row_vals.get(col_map["Otevřeno"])):
+                continue
             zustatek = parse_number(row_vals.get(col_map["Zůstatek (množství)"]))
-
-            if mnozstvi <= 0 and zustatek <= 0:
+            if zustatek <= 0:
                 continue
 
             kod = str(row_vals.get(col_map["Číslo zboží"]) or "").strip()
             lokace = str(row_vals.get(col_map["Kód lokace"]) or "").strip()
             sarze = str(row_vals.get(col_map["Číslo šarže"]) or "").strip() or "-"
+            exp_iso = excel_serial_to_iso(row_vals.get(col_map["Datum expirace"]))
+            zuct_iso = excel_serial_to_iso(row_vals.get(col_map["Zúčtovací datum"]))
 
-            if mnozstvi > 0:
-                zuct_iso = excel_serial_to_iso(row_vals.get(col_map["Zúčtovací datum"]))
-                if zuct_iso:
-                    rkey = (kod, lokace, sarze)
-                    prev = last_receipt.get(rkey)
-                    if prev is None or zuct_iso > prev:
-                        last_receipt[rkey] = zuct_iso
+            if zuct_iso:
+                rkey = (kod, lokace, sarze)
+                prev = last_receipt.get(rkey)
+                if prev is None or zuct_iso > prev:
+                    last_receipt[rkey] = zuct_iso
 
-            if zustatek > 0:
+            gkey = (kod, lokace, sarze, exp_iso)
+            existing = grouped.get(gkey)
+            if existing is not None:
+                existing["q"] += zustatek
+            else:
                 popis = str(row_vals.get(col_map["Popis"]) or "").strip()
                 kat = str(row_vals.get(col_map["Kód kategorie zboží"]) or "").strip()
                 prodejce = str(row_vals.get(col_map["Prodejce Kód"]) or "").strip()
-                exp_iso = excel_serial_to_iso(row_vals.get(col_map["Datum expirace"]))
-
                 fyz_sklad = get_fyzicky_sklad(lokace, prodejce)
                 lok_nazev = format_location_name(lokace, prodejce)
-
-                gkey = (kod, popis, kat, lokace, fyz_sklad, lok_nazev, sarze, exp_iso)
-                grouped[gkey] += zustatek
+                grouped[gkey] = {
+                    "c": kod,
+                    "n": popis,
+                    "cat": kat,
+                    "loc": lokace,
+                    "wh": fyz_sklad,
+                    "ln": lok_nazev,
+                    "lot": sarze,
+                    "exp": exp_iso,
+                    "q": zustatek,
+                }
 
     items = []
     product_codes = set()
-    for (kod, popis, kat, lokace, fyz_sklad, lok_nazev, sarze, exp_iso), qty in grouped.items():
-        qty_rounded = round(qty, 4)
+    for rec in grouped.values():
+        qty_rounded = round(rec["q"], 4)
         if qty_rounded <= 0:
             continue
-        product_codes.add(kod)
+        product_codes.add(rec["c"])
         items.append({
-            "c": kod,
-            "n": popis,
-            "cat": kat,
-            "loc": lokace,
-            "wh": fyz_sklad,
-            "ln": lok_nazev,
-            "lot": sarze,
-            "exp": exp_iso,
+            **rec,
             "q": qty_rounded,
-            "rec": last_receipt.get((kod, lokace, sarze)),
+            "rec": last_receipt.get((rec["c"], rec["loc"], rec["lot"])),
         })
 
     items.sort(key=lambda x: (x["n"].lower(), x["c"], x["exp"] or "9999-99-99", -x["q"]))

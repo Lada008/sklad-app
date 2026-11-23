@@ -15,9 +15,15 @@ const REQUIRED_COLUMNS = [
   'Datum expirace',
   'Zůstatek (množství)',
   'Zúčtovací datum',
-  'Množství',
+  'Otevřeno',
   'Prodejce Kód',
 ];
+
+function isRowOpen(rawVal) {
+  if (rawVal === null || rawVal === undefined) return false;
+  const s = String(rawVal).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'ano' || parseNumber(s) === 1;
+}
 
 function decodeXmlEntities(str) {
   if (!str || !str.includes('&')) return str;
@@ -148,15 +154,26 @@ export async function readEntryAsText(buffer, entry) {
 
 function resolveFirstSheetPath(entries, workbookXml, relsXml) {
   if (workbookXml && relsXml) {
-    const sheetMatch = workbookXml.match(/<(?:\w+:)?sheet\b[^>]*\br:id="([^"]+)"/);
-    if (sheetMatch) {
-      const rid = sheetMatch[1];
+    const sheetTags = workbookXml.match(/<(?:\w+:)?sheet\b[^>]*>/g) || [];
+    let chosenRid = null;
+    for (const tag of sheetTags) {
+      const nameM = tag.match(/\bname="([^"]+)"/);
+      const ridM = tag.match(/\br:id="([^"]+)"/);
+      if (!ridM) continue;
+      if (!chosenRid) chosenRid = ridM[1];
+      const sheetName = nameM ? decodeXmlEntities(nameM[1]).trim().toLowerCase() : '';
+      if (sheetName === 'položky zboží' || sheetName === 'polozky zbozi') {
+        chosenRid = ridM[1];
+        break;
+      }
+    }
+    if (chosenRid) {
       const relRegex = /<Relationship\b[^>]*>/g;
       let m;
       while ((m = relRegex.exec(relsXml)) !== null) {
         const tag = m[0];
         const idM = tag.match(/\bId="([^"]+)"/);
-        if (idM && idM[1] === rid) {
+        if (idM && idM[1] === chosenRid) {
           const targetM = tag.match(/\bTarget="([^"]+)"/);
           if (targetM) {
             let target = targetM[1].replace(/^\/+/, '');
@@ -320,7 +337,7 @@ export async function parseBusinessCentralXlsx(arrayBuffer, fileName = 'sklad.xl
         exp: byName['Datum expirace'],
         zustatek: byName['Zůstatek (množství)'],
         zuct: byName['Zúčtovací datum'],
-        mnozstvi: byName['Množství'],
+        otevreno: byName['Otevřeno'],
         prodejce: byName['Prodejce Kód'],
       };
       wantedCols = new Set(Object.values(colMap));
@@ -331,48 +348,48 @@ export async function parseBusinessCentralXlsx(arrayBuffer, fileName = 'sklad.xl
     totalRows += 1;
 
     const vals = parseRowCells(rowInner, sharedStrings, wantedCols);
-    const mnozstvi = parseNumber(vals[colMap.mnozstvi]);
+
+    // Filtruj POUZE otevřené řádky (Otevřeno == 1) a zároveň Zůstatek (množství) > 0
+    if (!isRowOpen(vals[colMap.otevreno])) return;
     const zustatek = parseNumber(vals[colMap.zustatek]);
-    if (mnozstvi <= 0 && zustatek <= 0) return;
+    if (zustatek <= 0) return;
 
     const kod = String(vals[colMap.kod] || '').trim();
     const lokace = String(vals[colMap.lokace] || '').trim();
     const sarze = String(vals[colMap.sarze] || '').trim() || '-';
+    const expIso = excelSerialToIso(vals[colMap.exp]);
+    const zuctIso = excelSerialToIso(vals[colMap.zuct]);
 
-    if (mnozstvi > 0) {
-      const zuctIso = excelSerialToIso(vals[colMap.zuct]);
-      if (zuctIso) {
-        const rKey = `${kod}\x1f${lokace}\x1f${sarze}`;
-        const prev = lastReceipt.get(rKey);
-        if (!prev || zuctIso > prev) lastReceipt.set(rKey, zuctIso);
-      }
+    if (zuctIso) {
+      const rKey = `${kod}\x1f${lokace}\x1f${sarze}`;
+      const prev = lastReceipt.get(rKey);
+      if (!prev || zuctIso > prev) lastReceipt.set(rKey, zuctIso);
     }
 
-    if (zustatek > 0) {
+    // Seskupuj zásoby výhradně podle Číslo zboží + Kód lokace + Číslo šarže + Datum expirace
+    // a sčítej VÝHRADNĚ sloupec Zůstatek (množství)
+    const gKey = `${kod}\x1f${lokace}\x1f${sarze}\x1f${expIso || ''}`;
+    const existing = grouped.get(gKey);
+    if (existing) {
+      existing.q += zustatek;
+    } else {
       const popis = String(vals[colMap.popis] || '').trim();
       const kat = String(vals[colMap.kat] || '').trim();
       const prodejce = String(vals[colMap.prodejce] || '').trim();
-      const expIso = excelSerialToIso(vals[colMap.exp]);
       const fyzSklad = getFyzickySklad(lokace, prodejce);
       const lokNazev = formatLocationPlain(lokace, prodejce);
 
-      const gKey = `${kod}\x1f${popis}\x1f${kat}\x1f${lokace}\x1f${fyzSklad}\x1f${lokNazev}\x1f${sarze}\x1f${expIso || ''}`;
-      const existing = grouped.get(gKey);
-      if (existing) {
-        existing.q += zustatek;
-      } else {
-        grouped.set(gKey, {
-          c: kod,
-          n: popis,
-          cat: kat,
-          loc: lokace,
-          wh: fyzSklad,
-          ln: lokNazev,
-          lot: sarze,
-          exp: expIso,
-          q: zustatek,
-        });
-      }
+      grouped.set(gKey, {
+        c: kod,
+        n: popis,
+        cat: kat,
+        loc: lokace,
+        wh: fyzSklad,
+        ln: lokNazev,
+        lot: sarze,
+        exp: expIso,
+        q: zustatek,
+      });
     }
   };
 

@@ -236,7 +236,7 @@ export function createDataTab(ctx) {
 
       progressBar.style.width = '88%';
       progressPct.textContent = '88 %';
-      progressText.textContent = `Odesílám ${parsed.items.length} šarží do Google Tabulky (update_sklad)…`;
+      progressText.textContent = `Odesílám ${parsed.items.length} sloučených položek do cloudu (update_sklad)…`;
 
       let gasUpdatedTime = parsed.meta.updatedAt;
       let gasSyncedOk = false;
@@ -248,14 +248,17 @@ export function createDataTab(ctx) {
         parsed.meta.updatedAt = gasUpdatedTime;
         parsed.meta.syncedToGas = true;
         gasSyncedOk = true;
+        ctx.state.gasConnected = true;
         ctx.state.lastSkladUpdate = gasUpdatedTime;
       } catch (gasErr) {
-        gasErrMsg = gasErr.message || String(gasErr);
+        gasErrMsg = gasErr?.message || String(gasErr);
       }
 
       progressBar.style.width = '100%';
       progressPct.textContent = '100 %';
-      progressText.textContent = 'Hotovo!';
+      progressText.textContent = gasSyncedOk
+        ? `Sklad odeslán do cloudu (${parsed.items.length} položek)`
+        : 'Odeslání do cloudu selhalo';
 
       await saveLocalStockData(parsed);
       ctx.applyStockDataset(parsed);
@@ -267,26 +270,23 @@ export function createDataTab(ctx) {
           <div class="callout" style="background:var(--brand-50);border:1px solid var(--brand-600);color:var(--brand-950);margin:0;">
             <span class="callout-icon">✅</span>
             <div>
-              <strong>Sklad byl úspěšně uložen do Google Tabulky (${parsed.items.length} šarží)!</strong><br>
-              Čas aktualizace: <strong>${escapeHtml(gasUpdatedTime)}</strong> · Spárováno s ÚKZÚZ: <strong>${matchedProducts}/${totalProducts}</strong> produktů. Nový stav skladu je okamžitě dostupný všem obchodníkům v mobilu.
+              <strong>Sklad odeslán do cloudu (${parsed.items.length} položek)</strong><br>
+              Zpracováno z ${parsed.meta.ledgerRows?.toLocaleString('cs-CZ') || '—'} pohybů v BC (pouze <code>Otevřeno == 1</code> a <code>Zůstatek &gt; 0</code>). Čas aktualizace: <strong>${escapeHtml(gasUpdatedTime)}</strong> · Spárováno s ÚKZÚZ: <strong>${matchedProducts}/${totalProducts}</strong> produktů.
             </div>
           </div>
         `;
-        ctx.toast(
-          `✅ Sklad uložen do Google Tabulky (${parsed.items.length} šarží · ${gasUpdatedTime})`,
-          'success'
-        );
+        ctx.toast(`✅ Sklad odeslán do cloudu (${parsed.items.length} položek)`, 'success');
       } else {
         syncResultBox.innerHTML = `
           <div class="callout callout-expired" style="margin:0;">
-            <span class="callout-icon">⚠️</span>
+            <span class="callout-icon">❌</span>
             <div>
-              <strong>Sklad byl načten lokálně, ale nepodařilo se ho odeslat do Google Tabulky:</strong><br>
-              ${escapeHtml(gasErrMsg)}. Zkontroluj připojení nebo klikni na „Odeslat aktuální sklad do Google Tabulky“.
+              <strong>Odeslání skladu do cloudu selhalo:</strong> ${escapeHtml(gasErrMsg)}<br>
+              Data jsou zatím uložena jen lokálně v tomto prohlížeči (${parsed.items.length} položek). Zkontroluj připojení nebo URL Google Apps Scriptu a klikni na „Odeslat aktuální sklad do cloudu“.
             </div>
           </div>
         `;
-        ctx.toast(`⚠️ Sklad načten lokálně, chyba zápisu do Google Tabulky: ${gasErrMsg}`, 'warn');
+        ctx.toast(`❌ Chyba odeslání skladu do cloudu: ${gasErrMsg}`, 'danger');
       }
 
       setTimeout(() => {
@@ -303,17 +303,33 @@ export function createDataTab(ctx) {
     if (pushBtn) {
       pushBtn.disabled = true;
       const orig = pushBtn.innerHTML;
-      pushBtn.innerHTML = `<span class="btn-spinner"></span> Odesílám do Google Tabulky…`;
+      pushBtn.innerHTML = `<span class="btn-spinner"></span> Odesílám do cloudu…`;
       try {
         const resp = await gasUpdateSklad(ctx.state.rawItems, ctx.state.prefs.gasUrl);
         if (resp.last_sklad_update) {
           ctx.state.lastSkladUpdate = resp.last_sklad_update;
           if (ctx.state.meta) ctx.state.meta.updatedAt = resp.last_sklad_update;
         }
+        ctx.state.gasConnected = true;
         ctx.refreshAllViews();
-        ctx.toast(`✅ Sklad (${ctx.state.rawItems.length} šarží) odeslán do Google Tabulky`, 'success');
+        syncResultBox.hidden = false;
+        syncResultBox.innerHTML = `
+          <div class="callout" style="background:var(--brand-50);border:1px solid var(--brand-600);color:var(--brand-950);margin:0;">
+            <span class="callout-icon">✅</span>
+            <div><strong>Sklad odeslán do cloudu (${ctx.state.rawItems.length} položek)</strong></div>
+          </div>
+        `;
+        ctx.toast(`✅ Sklad odeslán do cloudu (${ctx.state.rawItems.length} položek)`, 'success');
       } catch (err) {
-        ctx.toast(`❌ Chyba odeslání skladu: ${err.message}`, 'danger');
+        const msg = err?.message || String(err);
+        syncResultBox.hidden = false;
+        syncResultBox.innerHTML = `
+          <div class="callout callout-expired" style="margin:0;">
+            <span class="callout-icon">❌</span>
+            <div><strong>Odeslání skladu do cloudu selhalo:</strong> ${escapeHtml(msg)}</div>
+          </div>
+        `;
+        ctx.toast(`❌ Chyba odeslání skladu do cloudu: ${msg}`, 'danger');
       } finally {
         pushBtn.disabled = false;
         pushBtn.innerHTML = orig;

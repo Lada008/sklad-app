@@ -1,22 +1,27 @@
 /**
- * Záložka 3: Mobilní inventura.
+ * Záložka 3: Mobilní & PC inventura s obousměrnou synchronizací přes Google Tabulku (list `Inventura`).
  * - Slepá inventura / Kontrolní režim (přepínač)
- * - Rychlá kalkulačka balení (počet balení × krok) a +/- tlačítka pro pohodlné počítání v rukavicích
- * - Okamžité ukládání do localStorage, souhrn rozdílů a export do českého CSV
+ * - Rychlá tlačítka po celých kartonech (+1 karton = +20 L / +12 L) i po jednotlivých kusech/kanystrech (+1 ks = +5 L / +1 L / +10 L)
+ * - Živý rozpad na celé kartony a volné kusy (např. "55 L = 2 kartony + 3 kanystry po 5 L")
+ * - Okamžité odeslání každého záznamu přes POST (`action: "save_inventura"`) do Google Tabulky (list `Inventura`)
+ * - Přehledná tabulka všech záznamů z cloudu (GET pole `inventura`) se zvýrazněním rozdílů oproti BC a exportem do Excelu (.xlsx)
  */
 
 import {
+  buildXlsxBlob,
   escapeHtml,
+  formatIsoDateCz,
   formatNumberRaw,
   formatQty,
+  formatQtyWithUnit,
   getCzechFileTimestamp,
   getCzechNowStr,
+  getPackagingInfo,
   normalizeText,
   prepocetNaBaleni,
-  toCsv,
   triggerFileDownload,
-  ziskejKrokBaleni,
 } from './domain.js';
+import { gasSaveInventura } from './gas-api.js';
 import { saveInventoryRecords } from './storage.js';
 
 const SECTIONS = [
@@ -28,22 +33,32 @@ const SECTIONS = [
 
 const INV_PAGE_SIZE = 40;
 
+export function buildInventoryKey(code, loc, lot, exp) {
+  return `${String(code || '').trim()}|${String(loc || '').trim()}|${String(lot || '-').trim()}|${String(exp || '').trim()}`;
+}
+
 export function createInventoryTab(ctx) {
   let filterView = 'pending'; // 'pending' | 'done' | 'diff' | 'all'
   let searchText = '';
   let expandedKeys = new Set();
   let visibleLimit = INV_PAGE_SIZE;
+  let tableFilterDiffOnly = false;
 
   const panel = document.getElementById('tab-inventory');
 
   panel.innerHTML = `
     <div class="section-header">
       <div>
-        <h2 class="section-title">Mobilní inventura</h2>
-        <p class="section-sub">Záznamy se ukládají okamžitě do zařízení a neztratí se ani bez signálu.</p>
+        <h2 class="section-title">📋 Inventura (Mobil ↔ PC)</h2>
+        <p class="section-sub">Každý zápis se okamžitě ukládá lokálně i do Google Tabulky (list <code>Inventura</code>) pro okamžité zobrazení na PC.</p>
       </div>
-      <button type="button" id="inv-export-btn" class="btn btn-sm">📥 Export CSV</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" id="inv-refresh-cloud-btn" class="btn btn-sm">🔄 Obnovit z cloudu</button>
+        <button type="button" id="inv-export-xlsx-btn" class="btn btn-primary btn-sm">📊 Export do Excelu (.xlsx)</button>
+      </div>
     </div>
+
+    <div id="inv-unsynced-banner" hidden style="margin-bottom: 10px;"></div>
 
     <div class="inv-progress-card">
       <div class="field">
@@ -73,7 +88,7 @@ export function createInventoryTab(ctx) {
           <circle cx="11" cy="11" r="8"></circle>
           <path d="m21 21-4.3-4.3"></path>
         </svg>
-        <input type="search" id="inv-search-input" class="search-input" placeholder="Rychlé vyhledání v inventuře (název, kód, šarže)…" autocomplete="off" />
+        <input type="search" id="inv-search-input" class="search-input" placeholder="Rychlé vyhledání v inventuře (název, kód, lokace, šarže)…" autocomplete="off" />
         <button type="button" id="inv-search-clear" class="search-action-btn" aria-label="Vymazat filtr" hidden>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
             <path d="M18 6 6 18M6 6l12 12"></path>
@@ -84,7 +99,7 @@ export function createInventoryTab(ctx) {
 
     <div id="inv-filter-chips" class="chip-row" style="margin-bottom: 10px;"></div>
     <div id="inv-list"></div>
-    <div id="inv-diff-summary"></div>
+    <div id="inv-cloud-table-wrap"></div>
   `;
 
   const sectionSelect = document.getElementById('inv-section-select');
@@ -94,8 +109,10 @@ export function createInventoryTab(ctx) {
   const searchClear = document.getElementById('inv-search-clear');
   const filterChips = document.getElementById('inv-filter-chips');
   const listEl = document.getElementById('inv-list');
-  const diffSummaryEl = document.getElementById('inv-diff-summary');
-  const exportBtn = document.getElementById('inv-export-btn');
+  const cloudTableWrap = document.getElementById('inv-cloud-table-wrap');
+  const unsyncedBanner = document.getElementById('inv-unsynced-banner');
+  const refreshCloudBtn = document.getElementById('inv-refresh-cloud-btn');
+  const exportXlsxBtn = document.getElementById('inv-export-xlsx-btn');
 
   sectionSelect.addEventListener('change', () => {
     ctx.setPrefs({ invSection: sectionSelect.value });
@@ -132,19 +149,84 @@ export function createInventoryTab(ctx) {
     render();
   });
 
-  exportBtn.addEventListener('click', () => {
-    const records = Object.values(ctx.state.inventory);
+  refreshCloudBtn.addEventListener('click', async () => {
+    refreshCloudBtn.disabled = true;
+    const orig = refreshCloudBtn.innerHTML;
+    refreshCloudBtn.innerHTML = `<span class="btn-spinner"></span> Stahuji…`;
+    await ctx.syncFromGas({ silent: false });
+    refreshCloudBtn.disabled = false;
+    refreshCloudBtn.innerHTML = orig;
+  });
+
+  unsyncedBanner.addEventListener('click', async (e) => {
+    const pushBtn = e.target.closest('#inv-push-unsynced-btn');
+    if (!pushBtn) return;
+    const unsynced = Object.values(ctx.state.inventory).filter((r) => r && r.synced === false);
+    if (!unsynced.length) return;
+    pushBtn.disabled = true;
+    pushBtn.innerHTML = `<span class="btn-spinner"></span> Odesílám (${unsynced.length})…`;
+    try {
+      const payload = unsynced.map(toGasRecord);
+      await gasSaveInventura(payload, ctx.state.prefs.gasUrl);
+      for (const r of unsynced) {
+        if (ctx.state.inventory[r.key]) {
+          ctx.state.inventory[r.key].synced = true;
+        }
+      }
+      saveInventoryRecords(ctx.state.inventory);
+      ctx.toast(`✅ Odesláno ${unsynced.length} záznamů inventury do Google Tabulky`, 'success');
+      await ctx.syncFromGas({ silent: true });
+    } catch (err) {
+      ctx.toast(`❌ Odeslání inventury selhalo: ${err.message}`, 'danger');
+      render();
+    }
+  });
+
+  exportXlsxBtn.addEventListener('click', () => {
+    const records = getAllMergedRecords();
     if (!records.length) {
       ctx.toast('Zatím nejsou uloženy žádné záznamy inventury.', 'warn');
       return;
     }
-    const headers = ['Čas', 'Úsek', 'Kód zboží', 'Popis', 'Šarže', 'Systém', 'Fyzicky', 'Rozdíl'];
-    const rows = records
-      .sort((a, b) => (a.section + a.name).localeCompare(b.section + b.name, 'cs'))
-      .map((r) => [r.time, r.section, r.code, r.name, r.lot, r.system, r.actual, r.diff]);
-    const csv = toCsv(headers, rows, ';');
-    triggerFileDownload(csv, `inventura_${getCzechFileTimestamp()}.csv`);
-    ctx.toast(`Staženo CSV s ${records.length} záznamy`, 'success');
+    const headers = [
+      'Čas zápisu',
+      'Číslo zboží',
+      'Název',
+      'Lokace',
+      'Šarže',
+      'Expirace',
+      'Stav BC',
+      'Skutečný stav',
+      'Rozdíl',
+      'Kartony / balení',
+      'Poznámka',
+      'Stav',
+    ];
+    const rows = records.map((r) => [
+      r.time || '',
+      r.code || '',
+      r.name || '',
+      r.loc || '',
+      r.lot || '-',
+      r.exp ? formatIsoDateCz(r.exp) : '',
+      Number(r.system) || 0,
+      Number(r.actual) || 0,
+      Number(r.diff) || 0,
+      r.kartonyText || '',
+      r.note || '',
+      r.diff === 0 ? 'Sedí' : r.diff < 0 ? 'Manko' : 'Přebytek',
+    ]);
+    const blob = buildXlsxBlob('Inventura', headers, rows);
+    triggerFileDownload(blob, `inventura_${getCzechFileTimestamp()}.xlsx`);
+    ctx.toast(`📊 Stažen Excel (inventura.xlsx) s ${records.length} záznamy`, 'success');
+  });
+
+  cloudTableWrap.addEventListener('click', (e) => {
+    const toggleDiffBtn = e.target.closest('[data-cloud-table-filter]');
+    if (toggleDiffBtn) {
+      tableFilterDiffOnly = toggleDiffBtn.dataset.cloudTableFilter === 'diff';
+      renderCloudTable();
+    }
   });
 
   // Delegované události na seznamu položek
@@ -164,9 +246,10 @@ export function createInventoryTab(ctx) {
       const input = card?.querySelector('input[name="actual"]');
       if (!input) return;
       const delta = parseFloat(stepBtn.dataset.stepDelta);
-      const current = parseFloat(input.value.replace(',', '.')) || 0;
+      const current = parseFloat(String(input.value || '').replace(',', '.')) || 0;
       const next = Math.max(0, Math.round((current + delta) * 1000) / 1000);
       input.value = formatNumberRaw(next);
+      updateLivePackPreview(card, next);
       return;
     }
 
@@ -174,7 +257,9 @@ export function createInventoryTab(ctx) {
     if (matchBtn) {
       const key = matchBtn.dataset.invMatch;
       const item = findItemByKey(key);
-      if (item) saveEntry(item, item.system);
+      const card = matchBtn.closest('.inv-item');
+      const note = card?.querySelector('input[name="poznamka"]')?.value.trim() || '';
+      if (item) saveEntry(item, item.system, note);
       return;
     }
 
@@ -183,7 +268,8 @@ export function createInventoryTab(ctx) {
       const key = undoBtn.dataset.invUndo;
       delete ctx.state.inventory[key];
       saveInventoryRecords(ctx.state.inventory);
-      ctx.toast('Záznam inventury byl zrušen', 'warn');
+      ctx.toast('Lokální záznam inventury byl zrušen', 'warn');
+      ctx.updateBadges();
       render();
       return;
     }
@@ -195,6 +281,14 @@ export function createInventoryTab(ctx) {
   });
 
   listEl.addEventListener('input', (e) => {
+    const actualIn = e.target.closest('input[name="actual"]');
+    if (actualIn) {
+      const card = actualIn.closest('.inv-item');
+      const val = parseFloat(String(actualIn.value || '').replace(',', '.'));
+      updateLivePackPreview(card, Number.isNaN(val) ? null : val);
+      return;
+    }
+
     const packCountInput = e.target.closest('[data-pack-multiplier]');
     if (!packCountInput) return;
     const step = parseFloat(packCountInput.dataset.packMultiplier);
@@ -205,6 +299,7 @@ export function createInventoryTab(ctx) {
     if (!Number.isNaN(count) && count >= 0) {
       const total = Math.round(count * step * 1000) / 1000;
       actualInput.value = formatNumberRaw(total);
+      updateLivePackPreview(card, total);
     }
   });
 
@@ -221,8 +316,23 @@ export function createInventoryTab(ctx) {
       ctx.toast('Zadej prosím platný počet (i kdyby to byla 0).', 'danger');
       return;
     }
-    saveEntry(item, Number(raw));
+    const note = form.querySelector('input[name="poznamka"]')?.value.trim() || '';
+    saveEntry(item, Number(raw), note);
   });
+
+  function updateLivePackPreview(card, val) {
+    if (!card) return;
+    const previewEl = card.querySelector('[data-live-pack-preview]');
+    if (!previewEl) return;
+    const code = previewEl.dataset.itemCode || '';
+    const name = previewEl.dataset.itemName || '';
+    if (val === null || val === undefined || Number.isNaN(val) || val < 0) {
+      previewEl.textContent = '';
+      return;
+    }
+    const packStr = prepocetNaBaleni(code, name, val, ctx.state.customPacks);
+    previewEl.innerHTML = `Rozpad: <strong>${formatQtyWithUnit(val, name)} = ${escapeHtml(packStr)}</strong>`;
+  }
 
   function getActiveSection() {
     const id = ctx.state.prefs.invSection;
@@ -240,10 +350,11 @@ export function createInventoryTab(ctx) {
       base = base.filter((i) => String(i.loc || '').startsWith('K.'));
     }
 
-    // Seskupení podle (kód, popis, šarže) — shodné s původní logikou
+    // Seskupení přesně podle (Číslo zboží + Kód lokace + Číslo šarže + Datum expirace)
     const map = new Map();
     for (const row of base) {
-      const key = `${row.c}|${row.lot}|${section.recordName}`;
+      const expIso = row.exp || '';
+      const key = buildInventoryKey(row.c, row.loc, row.lot, expIso);
       let entry = map.get(key);
       if (!entry) {
         entry = {
@@ -251,9 +362,12 @@ export function createInventoryTab(ctx) {
           section: section.recordName,
           code: row.c,
           name: row.n,
+          loc: row.loc,
+          locDisplay: row._locDisplay || row.ln || row.loc,
           lot: row.lot,
+          exp: expIso,
           system: 0,
-          search: normalizeText(`${row.n} ${row.c} ${row.lot}`),
+          search: normalizeText(`${row.n} ${row.c} ${row.loc} ${row.ln} ${row.lot}`),
         };
         map.set(key, entry);
       }
@@ -262,38 +376,163 @@ export function createInventoryTab(ctx) {
 
     return Array.from(map.values())
       .filter((x) => x.system > 0)
-      .sort((a, b) => a.name.localeCompare(b.name, 'cs') || a.lot.localeCompare(b.lot, 'cs'));
+      .sort(
+        (a, b) =>
+          a.name.localeCompare(b.name, 'cs') ||
+          a.loc.localeCompare(b.loc, 'cs') ||
+          a.lot.localeCompare(b.lot, 'cs')
+      );
   }
 
   function findItemByKey(key) {
     return getSectionItems().find((i) => i.key === key) || null;
   }
 
-  function saveEntry(item, actualVal) {
+  function findRecordForItem(item) {
+    const inv = ctx.state.inventory || {};
+    if (inv[item.key]) return inv[item.key];
+    // Fallback spárování podle (code, loc, lot) pokud v Google Tabulce chyběla expirace
+    const altKey = buildInventoryKey(item.code, item.loc, item.lot, '');
+    if (inv[altKey]) return inv[altKey];
+    return null;
+  }
+
+  function toGasRecord(rec) {
+    return {
+      cislo_zbozi: rec.code || '',
+      nazev: rec.name || '',
+      lokace: rec.loc || rec.section || '',
+      sarze: rec.lot || '-',
+      expirace: rec.exp ? formatIsoDateCz(rec.exp) : '',
+      stav_bc: Number(rec.system) || 0,
+      skutecny_stav: Number(rec.actual) || 0,
+      rozdil: Number(rec.diff) || 0,
+      kartony_text: rec.kartonyText || '',
+      poznamka: rec.note || '',
+    };
+  }
+
+  async function saveEntry(item, actualVal, note = '') {
     const actual = Math.round(actualVal * 1000) / 1000;
     const diff = Math.round((actual - item.system) * 1000) / 1000;
+    const packStr = prepocetNaBaleni(item.code, item.name, actual, ctx.state.customPacks);
+    const kartonyText = `${formatQtyWithUnit(actual, item.name)} = ${packStr}`;
 
-    ctx.state.inventory[item.key] = {
+    const localRec = {
+      key: item.key,
       time: getCzechNowStr(),
       section: item.section,
       code: item.code,
       name: item.name,
+      loc: item.loc,
       lot: item.lot,
+      exp: item.exp || '',
       system: item.system,
       actual,
       diff,
+      kartonyText,
+      note: String(note || '').trim(),
+      synced: false,
     };
+
+    ctx.state.inventory[item.key] = localRec;
     saveInventoryRecords(ctx.state.inventory);
     expandedKeys.delete(item.key);
-
-    if (diff === 0) {
-      ctx.toast(`✅ ${item.name}: Vše sedí (${formatQty(item.system)} j.)`, 'success');
-    } else {
-      const sign = diff > 0 ? '+' : '';
-      ctx.toast(`⚠️ ${item.name}: Uloženo s rozdílem ${sign}${formatQty(diff)} j.`, 'warn');
-    }
     ctx.updateBadges();
     render();
+
+    // Okamžité odeslání POST (`action: "save_inventura"`, `records: [...]`) do Google Tabulky (list `Inventura`)
+    try {
+      await gasSaveInventura([toGasRecord(localRec)], ctx.state.prefs.gasUrl);
+      if (ctx.state.inventory[item.key]) {
+        ctx.state.inventory[item.key].synced = true;
+        saveInventoryRecords(ctx.state.inventory);
+      }
+      // Přidej / aktualizuj i v cloudInventory pro okamžité zobrazení v tabulce níže
+      const existingIdx = (ctx.state.cloudInventory || []).findIndex(
+        (c) =>
+          c.cislo_zbozi === localRec.code &&
+          c.lokace === localRec.loc &&
+          c.sarze === localRec.lot &&
+          (c.expirace || '') === (localRec.exp || '')
+      );
+      const cloudRow = {
+        ...toGasRecord(localRec),
+        expirace: localRec.exp || '',
+        cas: localRec.time,
+        synced: true,
+      };
+      if (existingIdx >= 0) {
+        ctx.state.cloudInventory[existingIdx] = cloudRow;
+      } else {
+        ctx.state.cloudInventory = [cloudRow, ...(ctx.state.cloudInventory || [])];
+      }
+
+      if (diff === 0) {
+        ctx.toast(`✅ ${item.name}: Sedí (${formatQtyWithUnit(actual, item.name)}) · uloženo do cloudu`, 'success');
+      } else {
+        const sign = diff > 0 ? '+' : '';
+        ctx.toast(
+          `⚠️ ${item.name}: Rozdíl ${sign}${formatQtyWithUnit(diff, item.name)} · uloženo do cloudu`,
+          'warn'
+        );
+      }
+      render();
+    } catch (err) {
+      ctx.toast(
+        `⚠️ Uloženo lokálně, ale odeslání do Google Tabulky selhalo: ${err.message}`,
+        'danger'
+      );
+      render();
+    }
+  }
+
+  function getAllMergedRecords() {
+    const map = new Map();
+    for (const row of ctx.state.cloudInventory || []) {
+      const key = buildInventoryKey(row.cislo_zbozi, row.lokace, row.sarze, row.expirace);
+      map.set(key, {
+        key,
+        time: row.cas || '',
+        code: row.cislo_zbozi,
+        name: row.nazev,
+        loc: row.lokace,
+        lot: row.sarze,
+        exp: row.expirace || '',
+        system: row.stav_bc,
+        actual: row.skutecny_stav,
+        diff: row.rozdil,
+        kartonyText: row.kartony_text || prepocetNaBaleni(row.cislo_zbozi, row.nazev, row.skutecny_stav, ctx.state.customPacks),
+        note: row.poznamka || '',
+        synced: true,
+      });
+    }
+    for (const rec of Object.values(ctx.state.inventory || {})) {
+      if (!rec) continue;
+      const key = rec.key || buildInventoryKey(rec.code, rec.loc, rec.lot, rec.exp);
+      if (!map.has(key) || rec.synced === false) {
+        map.set(key, {
+          key,
+          time: rec.time || '',
+          code: rec.code || '',
+          name: rec.name || '',
+          loc: rec.loc || rec.section || '',
+          lot: rec.lot || '-',
+          exp: rec.exp || '',
+          system: rec.system ?? 0,
+          actual: rec.actual ?? 0,
+          diff: rec.diff ?? 0,
+          kartonyText: rec.kartonyText || prepocetNaBaleni(rec.code, rec.name, rec.actual, ctx.state.customPacks),
+          note: rec.note || '',
+          synced: rec.synced !== false,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      // Rozdíly a nejnovější záznamy navrchu
+      if ((a.diff !== 0) !== (b.diff !== 0)) return a.diff !== 0 ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '', 'cs');
+    });
   }
 
   function render() {
@@ -301,13 +540,30 @@ export function createInventoryTab(ctx) {
     sectionSelect.value = section.id;
     blindToggle.checked = Boolean(ctx.state.prefs.blindMode);
 
-    const items = getSectionItems();
-    const inv = ctx.state.inventory;
+    const unsyncedCount = Object.values(ctx.state.inventory || {}).filter(
+      (r) => r && r.synced === false
+    ).length;
+    if (unsyncedCount > 0) {
+      unsyncedBanner.hidden = false;
+      unsyncedBanner.innerHTML = `
+        <div class="callout callout-fefo" style="margin:0;justify-content:space-between;align-items:center;">
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span class="callout-icon">📡</span>
+            <div><strong>${unsyncedCount} ${unsyncedCount === 1 ? 'záznam čeká' : 'záznamů čeká'} na odeslání do Google Tabulky</strong></div>
+          </div>
+          <button type="button" id="inv-push-unsynced-btn" class="btn btn-primary btn-sm">☁️ Odeslat do cloudu</button>
+        </div>
+      `;
+    } else {
+      unsyncedBanner.hidden = true;
+      unsyncedBanner.innerHTML = '';
+    }
 
+    const items = getSectionItems();
     let doneCount = 0;
     let diffCount = 0;
     for (const it of items) {
-      const rec = inv[it.key];
+      const rec = findRecordForItem(it);
       if (rec) {
         doneCount++;
         if (rec.diff !== 0) diffCount++;
@@ -349,12 +605,11 @@ export function createInventoryTab(ctx) {
     `;
 
     renderListOnly(items);
-    renderDiffSummary();
+    renderCloudTable();
   }
 
   function renderListOnly(precomputedItems = null) {
     const items = precomputedItems || getSectionItems();
-    const inv = ctx.state.inventory;
     const blindMode = Boolean(ctx.state.prefs.blindMode);
     const customPacks = ctx.state.customPacks;
 
@@ -374,7 +629,7 @@ export function createInventoryTab(ctx) {
 
     let filtered = items.filter((it) => {
       if (tokens.length && !tokens.every((t) => it.search.includes(t))) return false;
-      const rec = inv[it.key];
+      const rec = findRecordForItem(it);
       if (filterView === 'pending') return !rec;
       if (filterView === 'done') return Boolean(rec);
       if (filterView === 'diff') return Boolean(rec && rec.diff !== 0);
@@ -395,75 +650,104 @@ export function createInventoryTab(ctx) {
       return;
     }
 
-    // Pokud uživatel vyhledává a našlo se <= 3 položky, automaticky je rozbal pro okamžité zadání
     const autoExpand = tokens.length > 0 && filtered.length <= 3;
-
     const shown = filtered.slice(0, visibleLimit);
     const remaining = filtered.length - shown.length;
 
     const html = shown
       .map((it) => {
-        const rec = inv[it.key];
+        const rec = findRecordForItem(it);
         const isDone = Boolean(rec);
         const isDiff = isDone && rec.diff !== 0;
         const isOpen = autoExpand || expandedKeys.has(it.key);
         const statusClass = isDone ? (isDiff ? 'is-diff' : 'is-ok') : 'is-pending';
-        const step = ziskejKrokBaleni(it.code, it.name, customPacks);
+        const pkg = getPackagingInfo(it.code, it.name, customPacks);
+        const uom = pkg.uomDisplay;
         const packInfo = prepocetNaBaleni(it.code, it.name, it.system, customPacks);
 
         let rightBadge = '';
         if (isDone) {
           const sign = rec.diff > 0 ? '+' : '';
+          const syncIcon = rec.synced === false ? '⏳ ' : '☁️ ';
           rightBadge = isDiff
-            ? `<span class="diff-badge is-diff">${sign}${formatQty(rec.diff)} j.</span>`
-            : `<span class="diff-badge is-ok">✓ ${formatQty(rec.actual)} j.</span>`;
+            ? `<span class="diff-badge is-diff">${syncIcon}${sign}${formatQtyWithUnit(rec.diff, it.name)}</span>`
+            : `<span class="diff-badge is-ok">${syncIcon}✓ ${formatQtyWithUnit(rec.actual, it.name)}</span>`;
         } else if (!blindMode) {
-          rightBadge = `<span class="mono" style="font-size:0.8rem;font-weight:700;color:var(--ink-muted)">${formatQty(it.system)} j.</span>`;
+          rightBadge = `<span class="mono" style="font-size:0.8rem;font-weight:700;color:var(--ink-muted)">${formatQtyWithUnit(it.system, it.name)}</span>`;
         }
 
         let bodyHtml = '';
         if (isOpen) {
+          const expCz = it.exp ? formatIsoDateCz(it.exp) : '—';
           const infoLine = isDone
-            ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Systém: <strong>${formatQty(it.system)} j.</strong> <em>(${escapeHtml(packInfo)})</em></span>
-               <span>Zadáno: <strong>${formatQty(rec.actual)} j.</strong> (${isDiff ? `<strong style="color:var(--danger)">Rozdíl ${rec.diff > 0 ? '+' : ''}${formatQty(rec.diff)} j.</strong>` : '<strong style="color:var(--brand-700)">Sedí</strong>'})</span>`
+            ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span>
+               <span>BC: <strong>${formatQtyWithUnit(it.system, it.name)}</strong> <em>(= ${escapeHtml(packInfo)})</em></span>
+               <span>Zadáno: <strong>${formatQtyWithUnit(rec.actual, it.name)}</strong> (${isDiff ? `<strong style="color:var(--danger)">Rozdíl ${rec.diff > 0 ? '+' : ''}${formatQtyWithUnit(rec.diff, it.name)}</strong>` : '<strong style="color:var(--brand-700)">Sedí</strong>'})</span>`
             : blindMode
-              ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong></span><span>Očekáváno: <strong>❓ slepá inventura</strong></span>`
-              : `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong></span><span>V systému: <strong>${formatQty(it.system)} j.</strong> <em>(${escapeHtml(packInfo)})</em></span>`;
+              ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span><span>Očekáváno: <strong>❓ slepá inventura</strong></span>`
+              : `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span>
+                 <span>V BC: <strong>${formatQtyWithUnit(it.system, it.name)} = ${escapeHtml(packInfo)}</strong></span>`;
 
           const defaultVal = isDone ? formatNumberRaw(rec.actual) : '';
-          const step4 = Math.round(step * 4 * 1000) / 1000;
-          const step10 = Math.round(step * 10 * 1000) / 1000;
+          const defaultNote = isDone ? rec.note || '' : '';
+          const defaultPreview = isDone
+            ? `Rozpad: <strong>${formatQtyWithUnit(rec.actual, it.name)} = ${escapeHtml(prepocetNaBaleni(it.code, it.name, rec.actual, customPacks))}</strong>`
+            : '';
+
+          const stepButtonsHtml = pkg.hasCarton
+            ? `
+                <button type="button" class="stepper-btn" data-step-delta="${-pkg.cartonSize}">−1 karton<br><small>−${formatQty(pkg.cartonSize)} ${uom}</small></button>
+                <button type="button" class="stepper-btn is-carton" data-step-delta="${pkg.cartonSize}">+1 karton<br><small>+${formatQty(pkg.cartonSize)} ${uom}</small></button>
+                <button type="button" class="stepper-btn" data-step-delta="${-pkg.unitSize}">−1 ks<br><small>−${formatQty(pkg.unitSize)} ${uom}</small></button>
+                <button type="button" class="stepper-btn" data-step-delta="${pkg.unitSize}">+1 ks<br><small>+${formatQty(pkg.unitSize)} ${uom}</small></button>
+              `
+            : `
+                <button type="button" class="stepper-btn" data-step-delta="${-pkg.unitSize}">−1 ks<br><small>−${formatQty(pkg.unitSize)} ${uom}</small></button>
+                <button type="button" class="stepper-btn is-carton" data-step-delta="${pkg.unitSize}">+1 ks<br><small>+${formatQty(pkg.unitSize)} ${uom}</small></button>
+                <button type="button" class="stepper-btn" data-step-delta="${Math.round(pkg.unitSize * 5 * 1000) / 1000}">+5 ks<br><small>+${formatQty(pkg.unitSize * 5)} ${uom}</small></button>
+                <button type="button" class="stepper-btn" data-step-delta="${Math.round(pkg.unitSize * 10 * 1000) / 1000}">+10 ks<br><small>+${formatQty(pkg.unitSize * 10)} ${uom}</small></button>
+              `;
 
           bodyHtml = `
             <div class="inv-item-body">
               <div class="inv-info-strip">${infoLine}</div>
               <form data-inv-form="${escapeHtml(it.key)}">
                 ${
-                  step !== 1
+                  pkg.hasCarton
                     ? `<div class="inv-pack-helper">
-                         <span>📦 Rychlý přepočet:</span>
-                         <input type="number" min="0" step="1" inputmode="decimal" placeholder="ks" data-pack-multiplier="${step}" aria-label="Počet celých balení" />
-                         <span>balení × <strong class="mono">${formatQty(step)}</strong></span>
+                         <span>📦 Celé kartony:</span>
+                         <input type="number" min="0" step="1" inputmode="decimal" placeholder="kart." data-pack-multiplier="${pkg.cartonSize}" aria-label="Počet celých kartonů" />
+                         <span>× <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong> (${pkg.piecesPerCarton} ks po ${formatQty(pkg.unitSize)} ${uom})</span>
                        </div>`
-                    : ''
+                    : pkg.unitSize !== 1
+                      ? `<div class="inv-pack-helper">
+                           <span>📦 Počet kusů:</span>
+                           <input type="number" min="0" step="1" inputmode="decimal" placeholder="ks" data-pack-multiplier="${pkg.unitSize}" aria-label="Počet celých balení" />
+                           <span>× <strong class="mono">${formatQty(pkg.unitSize)} ${uom}</strong></span>
+                         </div>`
+                      : ''
                 }
                 <div class="field">
-                  <label>Fyzicky napočítáno celkem (krok po ${formatQty(step)})</label>
-                  <input class="input mono" type="number" name="actual" min="0" step="any" inputmode="decimal" value="${defaultVal}" placeholder="Zadej počet v l / kg / ks…" />
+                  <label>Fyzicky napočítáno celkem (${uom})</label>
+                  <input class="input mono" type="number" name="actual" min="0" step="any" inputmode="decimal" value="${defaultVal}" placeholder="Zadej počet v ${uom}…" />
                 </div>
 
+                <div class="inv-live-pack" data-live-pack-preview="1" data-item-code="${escapeHtml(it.code)}" data-item-name="${escapeHtml(it.name)}">${defaultPreview}</div>
+
                 <div class="stepper-row">
-                  <button type="button" class="stepper-btn" data-step-delta="${-step}">−${formatQty(step)}</button>
-                  <button type="button" class="stepper-btn" data-step-delta="${step}">+${formatQty(step)}</button>
-                  <button type="button" class="stepper-btn" data-step-delta="${step4}">+${formatQty(step4)}</button>
-                  <button type="button" class="stepper-btn" data-step-delta="${step10}">+${formatQty(step10)}</button>
+                  ${stepButtonsHtml}
+                </div>
+
+                <div class="field" style="margin-top:8px;">
+                  <label>Poznámka (volitelné — poškozený obal, chybí etiketa…)</label>
+                  <input class="input" type="text" name="poznamka" value="${escapeHtml(defaultNote)}" placeholder="Např. 1 kanystr načatý, přesunuto…" />
                 </div>
 
                 <div class="inv-action-row">
-                  <button type="submit" class="btn btn-primary">💾 Uložit stav</button>
+                  <button type="submit" class="btn btn-primary">☁️ Uložit &amp; odeslat</button>
                   ${
                     !blindMode
-                      ? `<button type="button" class="btn" data-inv-match="${escapeHtml(it.key)}">✅ Sedí (${formatQty(it.system)} j.)</button>`
+                      ? `<button type="button" class="btn" data-inv-match="${escapeHtml(it.key)}">✅ Sedí (${formatQtyWithUnit(it.system, it.name)})</button>`
                       : isDone
                         ? `<button type="button" class="btn btn-soft-danger" data-inv-undo="${escapeHtml(it.key)}">↩ Zrušit záznam</button>`
                         : `<button type="button" class="btn" data-step-delta="${-999999}">0 (Prázdné)</button>`
@@ -471,7 +755,7 @@ export function createInventoryTab(ctx) {
                 </div>
                 ${
                   !blindMode && isDone
-                    ? `<div style="margin-top:8px;"><button type="button" class="btn btn-soft-danger btn-sm btn-block" data-inv-undo="${escapeHtml(it.key)}">↩ Zrušit tento záznam</button></div>`
+                    ? `<div style="margin-top:8px;"><button type="button" class="btn btn-soft-danger btn-sm btn-block" data-inv-undo="${escapeHtml(it.key)}">↩ Zrušit tento lokální záznam</button></div>`
                     : ''
                 }
               </form>
@@ -485,7 +769,10 @@ export function createInventoryTab(ctx) {
               <span class="inv-status-dot ${statusClass}" aria-hidden="true"></span>
               <div class="inv-item-main">
                 <div class="inv-item-name">${escapeHtml(it.name)}</div>
-                <div class="inv-item-sub">Šarže: <strong class="mono">${escapeHtml(it.lot)}</strong> · ${escapeHtml(it.code)}</div>
+                <div class="inv-item-sub">
+                  <strong>${escapeHtml(it.locDisplay)}</strong> · Šarže: <strong class="mono">${escapeHtml(it.lot)}</strong>${it.exp ? ` · Exp: ${formatIsoDateCz(it.exp)}` : ''}
+                  ${!blindMode ? `<br><span style="color:var(--ink-secondary);">${escapeHtml(packInfo)}</span>` : ''}
+                </div>
               </div>
               ${rightBadge}
             </button>
@@ -503,32 +790,84 @@ export function createInventoryTab(ctx) {
     listEl.innerHTML = html + loadMoreHtml;
   }
 
-  function renderDiffSummary() {
-    const diffs = Object.values(ctx.state.inventory).filter((r) => r.diff !== 0);
-    if (!diffs.length) {
-      diffSummaryEl.innerHTML = '';
+  function renderCloudTable() {
+    const allRecords = getAllMergedRecords();
+    const diffRecords = allRecords.filter((r) => r.diff !== 0);
+    const shown = tableFilterDiffOnly ? diffRecords : allRecords;
+
+    if (!allRecords.length) {
+      cloudTableWrap.innerHTML = `
+        <div class="card" style="margin-top: 16px;">
+          <div class="section-header" style="margin-bottom: 6px;">
+            <h3 class="section-title">☁️ Zapsané záznamy inventury (Google Tabulka)</h3>
+          </div>
+          <p class="section-sub">Zatím nejsou v listu <code>Inventura</code> žádné záznamy. Jakmile skladník uloží položku v mobilu, objeví se zde i na PC.</p>
+        </div>
+      `;
       return;
     }
 
-    diffSummaryEl.innerHTML = `
-      <div class="card" style="margin-top: 16px; border-color: var(--danger-border);">
+    cloudTableWrap.innerHTML = `
+      <div class="card" style="margin-top: 16px; ${diffRecords.length ? 'border-color: var(--danger-border);' : ''}">
         <div class="section-header" style="margin-bottom: 10px;">
-          <h3 class="section-title" style="color: var(--danger-dark);">⚠️ Souhrn zjištěných rozdílů (${diffs.length})</h3>
-        </div>
-        ${diffs
-          .map(
-            (r) => `
-          <div class="callout callout-expired" style="margin-top: 8px;">
-            <span class="callout-icon">📦</span>
-            <div>
-              <strong>${escapeHtml(r.name)}</strong> (Šarže: <span class="mono">${escapeHtml(r.lot)}</span> · ${escapeHtml(r.section)})<br>
-              Systém: <strong>${formatQty(r.system)}</strong> → Fyzicky: <strong>${formatQty(r.actual)}</strong>
-              (<strong>Rozdíl: ${r.diff > 0 ? '+' : ''}${formatQty(r.diff)} j.</strong>)
-            </div>
+          <div>
+            <h3 class="section-title">☁️ Zapsané záznamy inventury (${allRecords.length})</h3>
+            <p class="section-sub">Synchronizováno s Google Tabulkou (list <code>Inventura</code>) · Rozdíly oproti BC: <strong style="color:${diffRecords.length ? 'var(--danger)' : 'var(--brand-700)'}">${diffRecords.length}</strong></p>
           </div>
-        `
-          )
-          .join('')}
+          <div class="chip-row" style="padding:0;">
+            <button type="button" class="chip ${!tableFilterDiffOnly ? 'is-active' : ''}" data-cloud-table-filter="all">Vše (${allRecords.length})</button>
+            <button type="button" class="chip is-danger ${tableFilterDiffOnly ? 'is-active' : ''}" data-cloud-table-filter="diff">⚠️ Jen rozdíly (${diffRecords.length})</button>
+          </div>
+        </div>
+
+        <div class="inv-table-scroll">
+          <table class="inv-cloud-table">
+            <thead>
+              <tr>
+                <th>Kód / Název</th>
+                <th>Lokace &amp; Šarže</th>
+                <th class="num">Stav BC</th>
+                <th class="num">Skutečný</th>
+                <th class="num">Rozdíl</th>
+                <th>Kartony / balení</th>
+                <th>Poznámka</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${shown
+                .map((r) => {
+                  const rowCls =
+                    r.diff < 0
+                      ? 'is-row-manko'
+                      : r.diff > 0
+                        ? 'is-row-prebytek'
+                        : 'is-row-ok';
+                  const diffLabel =
+                    r.diff === 0
+                      ? '<span class="diff-badge is-ok">✓ Sedí</span>'
+                      : `<span class="diff-badge is-diff">${r.diff > 0 ? '+' : ''}${formatQtyWithUnit(r.diff, r.name)}</span>`;
+                  return `
+                    <tr class="${rowCls}">
+                      <td>
+                        <div style="font-weight:700;">${escapeHtml(r.name)}</div>
+                        <div class="mono" style="font-size:0.74rem;color:var(--ink-muted);">${escapeHtml(r.code)}${r.time ? ` · ${escapeHtml(r.time)}` : ''}${r.synced === false ? ' · ⏳ nesync.' : ''}</div>
+                      </td>
+                      <td>
+                        <div><strong>${escapeHtml(r.loc || '—')}</strong></div>
+                        <div class="mono" style="font-size:0.74rem;color:var(--ink-muted);">Š: ${escapeHtml(r.lot)}${r.exp ? ` · Exp: ${formatIsoDateCz(r.exp)}` : ''}</div>
+                      </td>
+                      <td class="num mono">${formatQtyWithUnit(r.system, r.name)}</td>
+                      <td class="num mono"><strong>${formatQtyWithUnit(r.actual, r.name)}</strong></td>
+                      <td class="num">${diffLabel}</td>
+                      <td style="font-size:0.8rem;">${escapeHtml(r.kartonyText || '—')}</td>
+                      <td style="font-size:0.8rem;color:var(--ink-secondary);">${escapeHtml(r.note || '—')}</td>
+                    </tr>
+                  `;
+                })
+                .join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
     `;
   }

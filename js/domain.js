@@ -207,13 +207,16 @@ export function parseCategory(cat) {
 }
 
 /**
- * České skloňování obalů a palet.
+ * České skloňování obalů, kartonů a palet.
  */
 export function sklonuj(pocet, jednotka) {
   const p = Math.abs(pocet);
   const j = String(jednotka || '').toLowerCase();
   const formatted = formatQty(pocet);
 
+  if (j === 'karton') {
+    return p === 1 ? `${formatted} karton` : p >= 2 && p <= 4 ? `${formatted} kartony` : `${formatted} kartonů`;
+  }
   if (j === 'kanystr') {
     return p === 1 ? `${formatted} kanystr` : p >= 2 && p <= 4 ? `${formatted} kanystry` : `${formatted} kanystrů`;
   }
@@ -243,127 +246,206 @@ export function sklonuj(pocet, jednotka) {
  */
 export function detectBaseUnit(popis) {
   if (!popis || typeof popis !== 'string') return 'j.';
-  if (/\b\d*(?:[.,]\d+)?\s*(kg|g)\b/i.test(popis) || /\bkg\b/i.test(popis)) return 'kg';
-  if (/\b\d*(?:[.,]\d+)?\s*(l|litr|ml)\b/i.test(popis) || /\bL\b/.test(popis)) return 'l';
+  if (/(?:^|\s|\d)(?:kg|g)\b(?!\s*\/)/i.test(popis) || /\bkg\b/i.test(popis)) return 'kg';
+  if (/(?:^|\s|\d)(?:l|litr|litrů|ml)\b(?!\s*\/)/i.test(popis) || /\bL\b/.test(popis)) return 'l';
   return 'j.';
+}
+
+/**
+ * Formátuje množství s jednotkou (např. "55 L", "25 kg", "10 j.").
+ */
+export function formatQtyWithUnit(qty, popis) {
+  const u = detectBaseUnit(popis);
+  const display = u === 'l' ? 'L' : u;
+  return `${formatQty(qty)} ${display}`;
+}
+
+/**
+ * Automaticky určí velikost jednotkového balení a kartonu z názvu položky:
+ * - 5L / 5 kg -> 1 karton = 20 L/kg (4 kanystry/kusy)
+ * - 1L / 1 kg -> 1 karton = 12 L/kg (12 kusů)
+ * - 10L / 10 kg -> 1 karton = 20 L/kg (2 kanystry)
+ * - 20L, 50L, 1000L IBC a větší -> 1 balení = 1 kus (bez kartonu)
+ */
+export function getPackagingInfo(kod, popis, customPacks = {}) {
+  const uom = detectBaseUnit(popis);
+  const uomDisplay = uom === 'l' ? 'L' : uom;
+  const kodStr = String(kod || '');
+  const custom = customPacks[kodStr];
+  const isCustomObal = Boolean(custom && custom.obal && custom.obal !== 'automaticky');
+
+  let unitSize = 0;
+  let typObalu = 'automaticky';
+
+  if (custom && Number(custom.velikost) > 0) {
+    unitSize = Number(custom.velikost);
+    typObalu = custom.obal || 'automaticky';
+  } else if (popis && typeof popis === 'string') {
+    // 1. Multi-balení typu "4x5L" nebo "12x1kg" -> jednotkový kus je 5L / 1kg
+    const multMatches = [...popis.matchAll(/(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|litrů|kg|g|ml)\b(?!\s*\/)/gi)];
+    if (multMatches.length > 0) {
+      const m = multMatches[multMatches.length - 1];
+      let v = parseFloat(m[2].replace(',', '.'));
+      const u = m[3].toLowerCase();
+      if (u === 'g' || u === 'ml') v /= 1000.0;
+      unitSize = Math.max(0.001, v);
+    } else {
+      // 2. Standardní balení na konci názvu ("5L", "5 L", "1 KG", "10L", "20L", "1000L", "500ml", "0,5 KG")
+      const singleMatches = [...popis.matchAll(/(?:^|[\s\-_(])(\d+(?:[.,]\d+)?)\s*(l|litr|litrů|kg|g|ml)\b(?!\s*\/)/gi)];
+      if (singleMatches.length > 0) {
+        const m = singleMatches[singleMatches.length - 1];
+        let v = parseFloat(m[1].replace(',', '.'));
+        const u = m[2].toLowerCase();
+        if (u === 'g' || u === 'ml') v /= 1000.0;
+        unitSize = Math.max(0.001, v);
+      } else if (/\bIBC\b/i.test(popis)) {
+        unitSize = 1000;
+      } else if (/\bL\b/.test(popis)) {
+        unitSize = 1.0;
+      }
+    }
+  }
+
+  if (unitSize <= 0) {
+    unitSize = 1.0;
+  }
+
+  // Pravidla kartonů podle velikosti jednotkového balení
+  let piecesPerCarton = null;
+  let cartonSize = null;
+  const is5 = Math.abs(unitSize - 5) < 0.001;
+  const is1 = Math.abs(unitSize - 1) < 0.001;
+  const is10 = Math.abs(unitSize - 10) < 0.001;
+
+  if (uom === 'l' || uom === 'kg') {
+    if (is5) {
+      piecesPerCarton = 4;
+      cartonSize = 20;
+    } else if (is1) {
+      piecesPerCarton = 12;
+      cartonSize = 12;
+    } else if (is10) {
+      piecesPerCarton = 2;
+      cartonSize = 20;
+    }
+    // 20L, 25KG, 50L, 1000L IBC a větší -> 1 balení = 1 kus (cartonSize = null)
+  }
+
+  // Typ jednotkového obalu
+  let pieceType = typObalu;
+  if (pieceType === 'automaticky') {
+    if (uom === 'l') {
+      if (unitSize >= 500) pieceType = 'kus';
+      else if (unitSize >= 3) pieceType = 'kanystr';
+      else pieceType = 'kus';
+    } else if (uom === 'kg') {
+      if (unitSize >= 15) pieceType = 'pytel';
+      else pieceType = 'kus';
+    } else {
+      pieceType = 'kus';
+    }
+  }
+
+  return {
+    unitSize,
+    uom,
+    uomDisplay,
+    pieceType,
+    piecesPerCarton,
+    cartonSize,
+    hasCarton: Boolean(cartonSize && cartonSize > 0),
+    isCustomObal,
+  };
 }
 
 /**
  * Získá krok 1 balení (v l nebo kg) s respektováním vlastního nastavení.
  */
 export function ziskejKrokBaleni(kod, popis, customPacks = {}) {
-  const kodStr = String(kod || '');
-  const custom = customPacks[kodStr];
-  if (custom && Number(custom.velikost) > 0) {
-    return Number(custom.velikost);
-  }
-  if (!popis || typeof popis !== 'string') return 1.0;
-
-  const mMult = popis.match(/(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b/i);
-  if (mMult) {
-    let v = parseFloat(mMult[2].replace(',', '.'));
-    const u = mMult[3].toLowerCase();
-    if (u === 'g' || u === 'ml') v /= 1000.0;
-    return Math.max(0.001, v);
-  }
-
-  const m = popis.match(/(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b/i);
-  if (m) {
-    let v = parseFloat(m[1].replace(',', '.'));
-    const u = m[2].toLowerCase();
-    if (u === 'g' || u === 'ml') v /= 1000.0;
-    return Math.max(0.001, v);
-  }
-  return 1.0;
+  return getPackagingInfo(kod, popis, customPacks).unitSize;
 }
 
 /**
- * Přepočet množství na balení (kanystry, krabice, pytle, láhve).
+ * Přepočet množství na celé kartony a volné kusy/kanystry (např. "2 kartony + 3 kanystry po 5 L").
  */
 export function prepocetNaBaleni(kod, popis, qty, customPacks = {}) {
-  if (!popis || typeof popis !== 'string' || qty === null || qty === undefined || Number.isNaN(qty) || qty === 0) {
+  if (!popis || typeof popis !== 'string' || qty === null || qty === undefined || Number.isNaN(Number(qty))) {
     return `${formatQty(qty || 0)} j.`;
   }
+  const numQty = Number(qty);
+  const info = getPackagingInfo(kod, popis, customPacks);
+  const { unitSize, uomDisplay, pieceType, cartonSize, hasCarton, isCustomObal } = info;
 
-  let uomBase = 'l';
-  if (/(?:kg|g)\b/i.test(popis)) uomBase = 'kg';
-
-  const kodStr = String(kod || '');
-  const custom = customPacks[kodStr];
-  let typObalu = 'automaticky';
-  let unitSizeBase = 0;
-
-  if (custom && Number(custom.velikost) > 0) {
-    unitSizeBase = Number(custom.velikost);
-    typObalu = custom.obal || 'automaticky';
+  if (numQty === 0) {
+    return `0 ${uomDisplay}`;
   }
 
-  if (unitSizeBase <= 0) {
-    const mMult = popis.match(/(\d+)\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b/i);
-    if (mMult) {
-      const ksVBaleni = parseFloat(mMult[1]);
-      const velikostKs = parseFloat(mMult[2].replace(',', '.'));
-      const uRaw = mMult[3].toLowerCase();
-      const vBase = uRaw === 'g' || uRaw === 'ml' ? velikostKs / 1000.0 : velikostKs;
-      unitSizeBase = ksVBaleni * vBase;
-    } else {
-      const m = popis.match(/(\d+(?:[.,]\d+)?)\s*(l|litr|kg|g|ml)\b/i);
-      if (m) {
-        const unitSize = parseFloat(m[1].replace(',', '.'));
-        const uRaw = m[2].toLowerCase();
-        unitSizeBase = uRaw === 'g' || uRaw === 'ml' ? unitSize / 1000.0 : unitSize;
-      } else if (/\bL\b/.test(popis)) {
-        unitSizeBase = 1.0;
-      }
+  const signPrefix = numQty < 0 ? '−' : '';
+  const absQty = Math.abs(numQty);
+
+  if (unitSize <= 0 || info.uom === 'j.') {
+    return `${signPrefix}${formatQty(absQty)} ${uomDisplay}`;
+  }
+
+  // Rozpad na celé kartony + volné kusy/kanystry (pokud má produkt kartonová pravidla)
+  if (hasCarton && !isCustomObal) {
+    let celeKartony = Math.floor((absQty + 1e-6) / cartonSize);
+    let poKartonech = Math.round((absQty - celeKartony * cartonSize) * 1000) / 1000;
+    if (poKartonech < 0.001) poKartonech = 0;
+
+    let volneKusy = Math.floor((poKartonech + 1e-6) / unitSize);
+    let zbytek = Math.round((poKartonech - volneKusy * unitSize) * 1000) / 1000;
+
+    if (Math.abs(unitSize - zbytek) < 0.02) {
+      volneKusy += 1;
+      zbytek = 0;
+    } else if (zbytek < 0.001) {
+      zbytek = 0;
+    }
+
+    if (info.piecesPerCarton && volneKusy >= info.piecesPerCarton) {
+      celeKartony += Math.floor(volneKusy / info.piecesPerCarton);
+      volneKusy = volneKusy % info.piecesPerCarton;
+    }
+
+    const parts = [];
+    if (celeKartony > 0) {
+      parts.push(sklonuj(celeKartony, 'karton'));
+    }
+    if (volneKusy > 0) {
+      parts.push(`${sklonuj(volneKusy, pieceType)} po ${formatQty(unitSize)} ${uomDisplay}`);
+    }
+    if (zbytek > 0) {
+      parts.push(`${formatQty(zbytek)} ${uomDisplay} navíc`);
+    }
+
+    if (celeKartony > 0 && volneKusy === 0 && zbytek === 0) {
+      const celkemKs = celeKartony * info.piecesPerCarton;
+      return `${signPrefix}${sklonuj(celeKartony, 'karton')} (${sklonuj(celkemKs, pieceType)} po ${formatQty(unitSize)} ${uomDisplay})`;
+    }
+    if (parts.length > 0) {
+      return `${signPrefix}${parts.join(' + ')}`;
     }
   }
 
-  if (unitSizeBase <= 0) {
-    return `${formatQty(qty)} j.`;
-  }
+  // Větší balení (20L, 50L, 1000L IBC) nebo vlastní obal: 1 balení = 1 kus
+  let celeBaleni = Math.floor((absQty + 1e-6) / unitSize);
+  let zbytek = Math.round((absQty - celeBaleni * unitSize) * 1000) / 1000;
 
-  if (typObalu === 'automaticky') {
-    if (uomBase === 'l') typObalu = unitSizeBase >= 3 ? 'kanystr' : 'láhev';
-    else if (uomBase === 'kg') typObalu = unitSizeBase >= 15 ? 'pytel' : 'balení';
-    else typObalu = 'balení';
-  }
-
-  let celeBaleni = Math.floor(qty / unitSizeBase);
-  let zbytek = Math.round((qty - celeBaleni * unitSizeBase) * 1000) / 1000;
-
-  if (Math.abs(unitSizeBase - zbytek) < 0.02) {
+  if (Math.abs(unitSize - zbytek) < 0.02) {
     celeBaleni += 1;
     zbytek = 0;
   } else if (zbytek < 0.001) {
     zbytek = 0;
   }
 
-  let krabiceInfo = '';
-  const isCustomObal = Boolean(custom && custom.obal && custom.obal !== 'automaticky');
-
-  if (!isCustomObal) {
-    if (uomBase === 'l' && unitSizeBase === 5 && celeBaleni >= 4) {
-      const k = Math.floor(celeBaleni / 4);
-      const zbK = celeBaleni % 4;
-      krabiceInfo = zbK > 0
-        ? ` (${sklonuj(k, 'krabice')} + ${sklonuj(zbK, 'kanystr')})`
-        : ` (${sklonuj(k, 'krabice')})`;
-    } else if (uomBase === 'l' && (unitSizeBase === 1 || unitSizeBase === 1000) && celeBaleni >= 12) {
-      const k = Math.floor(celeBaleni / 12);
-      const zbK = celeBaleni % 12;
-      krabiceInfo = zbK > 0
-        ? ` (${sklonuj(k, 'krabice')} po 12 ks + ${sklonuj(zbK, 'láhev')})`
-        : ` (${sklonuj(k, 'krabice')} po 12 ks)`;
-    }
-  }
-
   if (celeBaleni > 0 && zbytek > 0) {
-    return `${sklonuj(celeBaleni, typObalu)} + ${formatQty(zbytek)} ${uomBase} navíc`;
+    return `${signPrefix}${sklonuj(celeBaleni, pieceType)} po ${formatQty(unitSize)} ${uomDisplay} + ${formatQty(zbytek)} ${uomDisplay} navíc`;
   }
   if (celeBaleni > 0) {
-    return `${sklonuj(celeBaleni, typObalu)} po ${formatQty(unitSizeBase)} ${uomBase}${krabiceInfo}`;
+    return `${signPrefix}${sklonuj(celeBaleni, pieceType)} po ${formatQty(unitSize)} ${uomDisplay}`;
   }
-  return `${formatQty(zbytek)} ${uomBase}`;
+  return `${signPrefix}${formatQty(zbytek)} ${uomDisplay}`;
 }
 
 /**
@@ -595,7 +677,7 @@ export function toCsv(headers, rows, delimiter = ';') {
 }
 
 export function triggerFileDownload(content, filename, mimeType = 'text/csv;charset=utf-8;') {
-  const blob = new Blob([content], { type: mimeType });
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -604,4 +686,158 @@ export function triggerFileDownload(content, filename, mimeType = 'text/csv;char
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// --- Zero-dependency Excel (.xlsx) export (uncompressed ZIP / STORE method 0) ---
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) {
+    c ^= bytes[i];
+    for (let k = 0; k < 8; k++) {
+      c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+    }
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function xmlEsc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function colIndexToLetter(idx) {
+  let n = idx + 1;
+  let s = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+function buildZipStore(files) {
+  const enc = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const dataBytes = enc.encode(f.content);
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    const local = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true); // UTF-8
+    lv.setUint16(8, 0, true); // method 0 = STORE
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, size, true);
+    lv.setUint32(22, size, true);
+    lv.setUint16(26, nameBytes.length, true);
+    local.set(nameBytes, 30);
+
+    localParts.push(local, dataBytes);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length + dataBytes.length;
+  }
+
+  const centralSize = centralParts.reduce((s, a) => s + a.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+
+  return new Blob([...localParts, ...centralParts, eocd], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+}
+
+/**
+ * Vytvoří validní Excel (.xlsx) Blob s jedním listem bez externích knihoven.
+ */
+export function buildXlsxBlob(sheetName, headers, rows) {
+  const safeSheet = xmlEsc(String(sheetName || 'Inventura').slice(0, 31));
+  const allRows = [headers, ...rows];
+  const rowXml = allRows
+    .map((cells, rIdx) => {
+      const rNum = rIdx + 1;
+      const cellXml = cells
+        .map((val, cIdx) => {
+          const ref = `${colIndexToLetter(cIdx)}${rNum}`;
+          if (rIdx > 0 && typeof val === 'number' && !Number.isNaN(val) && Number.isFinite(val)) {
+            return `<c r="${ref}"><v>${val}</v></c>`;
+          }
+          const s = xmlEsc(val ?? '');
+          return `<c r="${ref}" t="inlineStr"><is><t>${s}</t></is></c>`;
+        })
+        .join('');
+      return `<row r="${rNum}">${cellXml}</row>`;
+    })
+    .join('');
+
+  const sheetXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+    `<sheetData>${rowXml}</sheetData></worksheet>`;
+
+  const workbookXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ` +
+    `xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">` +
+    `<sheets><sheet name="${safeSheet}" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+
+  const wbRelsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
+    `</Relationships>`;
+
+  const rootRelsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+    `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>` +
+    `</Relationships>`;
+
+  const contentTypesXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+    `<Default Extension="xml" ContentType="application/xml"/>` +
+    `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
+    `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
+    `</Types>`;
+
+  return buildZipStore([
+    { name: '[Content_Types].xml', content: contentTypesXml },
+    { name: '_rels/.rels', content: rootRelsXml },
+    { name: 'xl/workbook.xml', content: workbookXml },
+    { name: 'xl/_rels/workbook.xml.rels', content: wbRelsXml },
+    { name: 'xl/worksheets/sheet1.xml', content: sheetXml },
+  ]);
 }

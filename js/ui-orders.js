@@ -17,6 +17,7 @@ import {
   formatNumberRaw,
   formatQty,
   getCzechFileTimestamp,
+  getPackagingInfo,
   groupByProduct,
   normalizeText,
   prepocetNaBaleni,
@@ -195,6 +196,7 @@ export function createOrdersTab(ctx) {
             </div>
           </div>
           <div id="ord-item-stock-hint" class="ord-stock-hint" hidden></div>
+          <div id="ord-item-quick-steppers" class="ord-quick-steppers" hidden></div>
 
           <div id="ord-cart-list" class="ord-cart-list"></div>
         </div>
@@ -245,6 +247,7 @@ export function createOrdersTab(ctx) {
   const itemQtyInput = document.getElementById('ord-item-qty');
   const addItemBtn = document.getElementById('ord-add-item-btn');
   const itemStockHint = document.getElementById('ord-item-stock-hint');
+  const itemQuickSteppers = document.getElementById('ord-item-quick-steppers');
   const cartCountEl = document.getElementById('ord-cart-count');
   const cartListEl = document.getElementById('ord-cart-list');
   const noteInput = document.getElementById('ord-note');
@@ -474,10 +477,13 @@ export function createOrdersTab(ctx) {
     if (!pickedStockProduct) {
       itemStockHint.hidden = true;
       itemStockHint.innerHTML = '';
+      itemQuickSteppers.hidden = true;
+      itemQuickSteppers.innerHTML = '';
       return;
     }
     const { total, atLoc } = getProductAvailableQty(pickedStockProduct);
-    const uom = detectBaseUnit(pickedStockProduct.name).toUpperCase();
+    const pkg = getPackagingInfo(pickedStockProduct.code, pickedStockProduct.name, ctx.state.customPacks);
+    const uom = pkg.uomDisplay;
     const pack = prepocetNaBaleni(
       pickedStockProduct.code,
       pickedStockProduct.name,
@@ -486,10 +492,46 @@ export function createOrdersTab(ctx) {
     );
     itemStockHint.hidden = false;
     itemStockHint.innerHTML = `
-      <span>Volné množství celkem: <strong>${formatQty(total)} ${uom}</strong> <em>(${escapeHtml(pack)})</em></span>
+      <span>Volné množství celkem: <strong>${formatQty(total)} ${uom}</strong> <em>(= ${escapeHtml(pack)})</em></span>
       ${atLoc > 0 ? ` · <span>Na středisku ${escapeHtml(selectedLocation)}: <strong>${formatQty(atLoc)} ${uom}</strong></span>` : ''}
     `;
+
+    const curQty = parseFloat(String(itemQtyInput.value || '').replace(',', '.')) || 0;
+    const curPack = curQty > 0
+      ? prepocetNaBaleni(pickedStockProduct.code, pickedStockProduct.name, curQty, ctx.state.customPacks)
+      : '';
+
+    const cartonBtns = pkg.hasCarton
+      ? `
+          <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.cartonSize}">−1 karton (−${formatQty(pkg.cartonSize)} ${uom})</button>
+          <button type="button" class="stepper-btn stepper-btn-sm is-carton" data-ord-delta="${pkg.cartonSize}">+1 karton (+${formatQty(pkg.cartonSize)} ${uom})</button>
+        `
+      : '';
+
+    itemQuickSteppers.hidden = false;
+    itemQuickSteppers.innerHTML = `
+      <div class="stepper-row stepper-row-compact">
+        ${cartonBtns}
+        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.unitSize}">−1 ks (−${formatQty(pkg.unitSize)} ${uom})</button>
+        <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${pkg.unitSize}">+1 ks (+${formatQty(pkg.unitSize)} ${uom})</button>
+      </div>
+      ${curPack ? `<div class="ord-qty-preview">Zadáno: <strong>${formatQty(curQty)} ${uom}</strong> = <strong>${escapeHtml(curPack)}</strong></div>` : ''}
+    `;
   }
+
+  itemQuickSteppers.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-ord-delta]');
+    if (!btn || !pickedStockProduct) return;
+    const delta = parseFloat(btn.dataset.ordDelta);
+    const cur = parseFloat(String(itemQtyInput.value || '').replace(',', '.')) || 0;
+    const next = Math.max(0, Math.round((cur + delta) * 1000) / 1000);
+    itemQtyInput.value = next > 0 ? formatNumberRaw(next) : '';
+    updateStockHint();
+  });
+
+  itemQtyInput.addEventListener('input', () => {
+    if (pickedStockProduct) updateStockHint();
+  });
 
   function renderItemDropdown() {
     const prods = getAvailableStockProducts();
@@ -511,11 +553,12 @@ export function createOrdersTab(ctx) {
     itemDropdown.innerHTML = matches
       .map((p) => {
         const uom = detectBaseUnit(p.name).toUpperCase();
+        const pack = prepocetNaBaleni(p.code, p.name, p.totalQty, ctx.state.customPacks);
         return `
           <button type="button" class="ac-item" role="option" data-pick-code="${escapeHtml(p.code)}">
             <div>
               <div class="ac-item-name">${escapeHtml(p.name)}</div>
-              <div class="ac-item-meta"><span class="mono">${escapeHtml(p.code)}</span> · ${p.cat.icon} ${escapeHtml(p.cat.label)}</div>
+              <div class="ac-item-meta"><span class="mono">${escapeHtml(p.code)}</span> · ${p.cat.icon} ${escapeHtml(p.cat.label)} · ${escapeHtml(pack)}</div>
             </div>
             <span class="ac-item-qty">${formatQty(p.totalQty)} ${uom}</span>
           </button>
@@ -588,10 +631,28 @@ export function createOrdersTab(ctx) {
     itemSearchInput.value = '';
     itemQtyInput.value = '';
     itemStockHint.hidden = true;
+    itemQuickSteppers.hidden = true;
+    itemQuickSteppers.innerHTML = '';
     renderCart();
   }
 
   cartListEl.addEventListener('click', (e) => {
+    const stepBtn = e.target.closest('[data-cart-delta]');
+    if (stepBtn) {
+      const idx = Number(stepBtn.dataset.cartIdx);
+      const delta = parseFloat(stepBtn.dataset.cartDelta);
+      if (cartItems[idx]) {
+        const next = Math.round((cartItems[idx].mnozstvi + delta) * 1000) / 1000;
+        if (next <= 0) {
+          cartItems.splice(idx, 1);
+        } else {
+          cartItems[idx].mnozstvi = next;
+        }
+        renderCart();
+      }
+      return;
+    }
+
     const rmBtn = e.target.closest('[data-cart-rm]');
     if (!rmBtn) return;
     const idx = Number(rmBtn.dataset.cartRm);
@@ -620,14 +681,27 @@ export function createOrdersTab(ctx) {
     cartListEl.innerHTML = cartItems
       .map((it, idx) => {
         const overStock = it.maxAvailable > 0 && it.mnozstvi > it.maxAvailable;
+        const pkg = getPackagingInfo(it.cislo_zbozi, it.nazev, ctx.state.customPacks);
         const pack = prepocetNaBaleni(it.cislo_zbozi, it.nazev, it.mnozstvi, ctx.state.customPacks);
+        const uom = pkg.uomDisplay;
         return `
           <div class="ord-cart-item ${overStock ? 'is-overstock' : ''}">
             <div class="ord-cart-main">
               <div style="font-weight:800;font-size:0.88rem;">${escapeHtml(it.nazev)}</div>
-              <div style="font-size:0.75rem;color:var(--ink-muted);">
-                <span class="mono">${escapeHtml(it.cislo_zbozi)}</span> · Sklad: <strong>${escapeHtml(it.lokace)}</strong> · <em>${escapeHtml(pack)}</em>
+              <div style="font-size:0.76rem;color:var(--ink-secondary);margin-top:2px;">
+                <span class="mono">${escapeHtml(it.cislo_zbozi)}</span> · Sklad: <strong>${escapeHtml(it.lokace)}</strong> ·
+                <strong>${formatQty(it.mnozstvi)} ${escapeHtml(it.mj)} = ${escapeHtml(pack)}</strong>
                 ${overStock ? `<span style="color:var(--danger);font-weight:700;"> (Skladem jen ${formatQty(it.maxAvailable)} ${escapeHtml(it.mj)})</span>` : ''}
+              </div>
+              <div class="ord-cart-steppers">
+                ${
+                  pkg.hasCarton
+                    ? `<button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${-pkg.cartonSize}">−1 kart.</button>
+                       <button type="button" class="stepper-btn stepper-btn-xs is-carton" data-cart-idx="${idx}" data-cart-delta="${pkg.cartonSize}">+1 kart. (+${formatQty(pkg.cartonSize)} ${uom})</button>`
+                    : ''
+                }
+                <button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${-pkg.unitSize}">−1 ks</button>
+                <button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${pkg.unitSize}">+1 ks (+${formatQty(pkg.unitSize)} ${uom})</button>
               </div>
             </div>
             <div class="ord-cart-controls">
@@ -893,13 +967,13 @@ export function createOrdersTab(ctx) {
         const itemsHtml = o.items?.length
           ? `<div class="ord-card-items">
                ${o.items
-                 .map(
-                   (it) =>
-                     `<div class="ord-card-item-row">
+                 .map((it) => {
+                   const pack = prepocetNaBaleni(it.cislo_zbozi, it.nazev, it.mnozstvi, ctx.state.customPacks);
+                   return `<div class="ord-card-item-row">
                         <span><strong>${escapeHtml(it.nazev)}</strong> <span class="mono" style="color:var(--ink-muted)">(${escapeHtml(it.cislo_zbozi || '')})</span></span>
-                        <span class="mono" style="font-weight:800;">${formatQty(it.mnozstvi)} ${escapeHtml(it.mj || 'j.')} · ${escapeHtml(it.lokace || o.lokace)}</span>
-                      </div>`
-                 )
+                        <span class="mono" style="font-weight:800;">${formatQty(it.mnozstvi)} ${escapeHtml(it.mj || 'j.')} <span style="font-weight:600;color:var(--ink-muted);">(= ${escapeHtml(pack)})</span> · ${escapeHtml(it.lokace || o.lokace)}</span>
+                      </div>`;
+                 })
                  .join('')}
              </div>`
           : `<div class="ord-card-items">${escapeHtml(o.polozkyPrehled)}</div>`;

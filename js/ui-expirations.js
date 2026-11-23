@@ -9,6 +9,7 @@ import {
   filterByWarehouse,
   formatIsoDateCz,
   formatQty,
+  formatQtyWithUnit,
   getCzechFileTimestamp,
   getTodayMidnightMs,
   normalizeText,
@@ -187,7 +188,7 @@ export function createExpirationsTab(ctx) {
             </div>
             <div class="batch-top">
               <span class="batch-loc">${escapeHtml(item._locDisplay)}</span>
-              <span class="batch-qty num">${formatQty(item.q)} j. <span class="batch-qty-pack">(${escapeHtml(pack)})</span></span>
+              <span class="batch-qty num">${formatQtyWithUnit(item.q, item.n)} <span class="batch-qty-pack">(= ${escapeHtml(pack)})</span></span>
             </div>
             <div class="batch-meta">
               <div class="batch-meta-items">
