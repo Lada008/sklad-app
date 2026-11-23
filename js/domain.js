@@ -414,7 +414,7 @@ export function prepocetNaBaleni(kod, popis, qty, customPacks = {}) {
 
     const parts = [];
     if (celeKartony > 0) {
-      parts.push(sklonuj(celeKartony, 'karton'));
+      parts.push(sklonuj(celeKartony, 'krabice'));
     }
     if (volneKusy > 0) {
       parts.push(`${sklonuj(volneKusy, pieceType)} po ${formatQty(unitSize)} ${uomDisplay}`);
@@ -425,7 +425,7 @@ export function prepocetNaBaleni(kod, popis, qty, customPacks = {}) {
 
     if (celeKartony > 0 && volneKusy === 0 && zbytek === 0) {
       const celkemKs = celeKartony * info.piecesPerCarton;
-      return `${signPrefix}${sklonuj(celeKartony, 'karton')} (${sklonuj(celkemKs, pieceType)} po ${formatQty(unitSize)} ${uomDisplay})`;
+      return `${signPrefix}${sklonuj(celeKartony, 'krabice')} (${sklonuj(celkemKs, pieceType)} po ${formatQty(unitSize)} ${uomDisplay})`;
     }
     if (parts.length > 0) {
       return `${signPrefix}${parts.join(' + ')}`;

@@ -563,7 +563,7 @@ export function createSearchTab(ctx) {
     const dose = parseFloat(String(box.querySelector('input[name="calc_dose"]')?.value || '').replace(',', '.'));
 
     if (!ha || ha <= 0 || !dose || dose <= 0) {
-      outEl.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu kartonů.</div>`;
+      outEl.innerHTML = `<div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu krabic.</div>`;
       return;
     }
 
@@ -644,7 +644,7 @@ export function createSearchTab(ctx) {
       return;
     }
     ctx.setCustomPack(code, size, obal, ksVKartonu);
-    ctx.toast('Nastavení balení a kartonů uloženo', 'success');
+    ctx.toast('Nastavení balení a krabic uloženo', 'success');
   });
 
   function resetAgroFilters() {
@@ -1175,14 +1175,14 @@ export function createSearchTab(ctx) {
             <div class="metric-value num" style="${prod.totalQty <= 0 ? 'color:var(--ink-muted)' : ''}">${formatQtyWithUnit(prod.totalQty, prod.name)}</div>
           </div>
           <div class="metric-tile">
-            <div class="metric-label">Kartony &amp; kusy</div>
+            <div class="metric-label">Krabice &amp; kusy</div>
             <div class="metric-value is-pack">${escapeHtml(packText)}</div>
           </div>
         </div>
 
         <!-- Rychlé akce: Kalkulačka ha + Agromanuál + Sdílet + Objednat -->
         <div class="card-quick-actions">
-          <button type="button" class="btn btn-sm calc-toggle-btn" data-toggle-calc="1" aria-expanded="false" title="Spočítej potřebu podle výměry v hektarech (ha → L/kg → kartony)">
+          <button type="button" class="btn btn-sm calc-toggle-btn" data-toggle-calc="1" aria-expanded="false" title="Spočítej potřebu podle výměry v hektarech (ha → L/kg → krabice)">
             🧮 Kalkulačka ha
           </button>
           <a href="${escapeHtml(agromanualUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-sm agromanual-btn" title="Vyhledat očištěný název přípravku nebo hnojiva na Agromanuál.cz">
@@ -1229,7 +1229,7 @@ export function createSearchTab(ctx) {
               >
                 <div class="dosage-calc-head">
                   <strong>🧮 Kalkulačka dávkování</strong>
-                  <span>ha → ${uom} → kartony &amp; objednávka</span>
+                  <span>ha → ${uom} → krabice &amp; objednávka</span>
                 </div>
                 ${doseChipsHtml}
                 <div class="form-grid-2">
@@ -1249,7 +1249,7 @@ export function createSearchTab(ctx) {
                   <button type="button" class="chip" data-ha-preset="100">100 ha</button>
                 </div>
                 <div data-calc-output>
-                  <div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu kartonů.</div>
+                  <div style="font-size:0.78rem;color:var(--ink-muted);">Zadej výměru (ha) a dávku pro výpočet potřeby a počtu krabic.</div>
                 </div>
               </div>
             </div>
@@ -1288,14 +1288,14 @@ export function createSearchTab(ctx) {
                  </details>
 
                  <details class="pack-details">
-                   <summary>⚙️ Upravit přepočet kusů a kartonů pro tento produkt</summary>
+                   <summary>⚙️ Upravit přepočet kusů a krabic pro tento produkt</summary>
                    <form class="pack-form" data-pack-form="${escapeHtml(prod.code)}">
                      <div class="field">
                        <label>Velikost 1 kusu (l / kg)</label>
                        <input class="input mono" type="number" name="velikost" step="any" min="0.001" value="${defaultSize}" required />
                      </div>
                      <div class="field">
-                       <label>Kusů v kartonu (balení)</label>
+                       <label>Kusů v krabici (balení)</label>
                        <input class="input mono" type="number" name="ksVKartonu" step="1" min="1" value="${getPackagingInfo(prod.code, prod.name, customPacks).piecesPerCarton || ''}" placeholder="např. 4 nebo 12" />
                      </div>
                      <div class="field" style="grid-column: 1 / -1;">

@@ -198,7 +198,7 @@ export function createInventoryTab(ctx) {
       'Stav BC',
       'Skutečný stav',
       'Rozdíl',
-      'Kartony / balení',
+      'Krabice / balení',
       'Poznámka',
       'Stav',
     ];
@@ -698,8 +698,8 @@ export function createInventoryTab(ctx) {
             ? `
                 <button type="button" class="stepper-btn" data-step-delta="${-pkg.unitSize}">−${formatQty(pkg.unitSize)} ${uom}<br><small>−1 ks</small></button>
                 <button type="button" class="stepper-btn" data-step-delta="${pkg.unitSize}">+${formatQty(pkg.unitSize)} ${uom}<br><small>+1 ks</small></button>
-                <button type="button" class="stepper-btn" data-step-delta="${-pkg.cartonSize}">−${formatQty(pkg.cartonSize)} ${uom}<br><small>−1 karton</small></button>
-                <button type="button" class="stepper-btn is-carton" data-step-delta="${pkg.cartonSize}">+${formatQty(pkg.cartonSize)} ${uom}<br><small>+1 kart. (${pkg.piecesPerCarton} ks)</small></button>
+                <button type="button" class="stepper-btn" data-step-delta="${-pkg.cartonSize}">−${formatQty(pkg.cartonSize)} ${uom}<br><small>−1 krabice</small></button>
+                <button type="button" class="stepper-btn is-carton" data-step-delta="${pkg.cartonSize}">+${formatQty(pkg.cartonSize)} ${uom}<br><small>+1 krab. (${pkg.piecesPerCarton} ks)</small></button>
               `
             : `
                 <button type="button" class="stepper-btn" data-step-delta="${-pkg.unitSize}">−${formatQty(pkg.unitSize)} ${uom}<br><small>−1 ks</small></button>
@@ -716,8 +716,8 @@ export function createInventoryTab(ctx) {
                   pkg.hasCarton
                     ? `<div class="inv-pack-helper">
                          <span>📦 Rychlý přepočet:</span>
-                         <input type="number" min="0" step="1" inputmode="decimal" placeholder="kart." data-pack-multiplier="${pkg.cartonSize}" aria-label="Počet celých kartonů" />
-                         <span><strong>kartonů</strong> (× <strong class="mono">${pkg.piecesPerCarton} ks</strong> = <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong>)</span>
+                         <input type="number" min="0" step="1" inputmode="decimal" placeholder="krab." data-pack-multiplier="${pkg.cartonSize}" aria-label="Počet celých krabic" />
+                         <span><strong>krabic</strong> (× <strong class="mono">${pkg.piecesPerCarton} ks</strong> = <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong>)</span>
                        </div>`
                     : pkg.unitSize !== 1
                       ? `<div class="inv-pack-helper">
@@ -728,7 +728,7 @@ export function createInventoryTab(ctx) {
                       : ''
                 }
                 <div class="field">
-                  <label>Fyzicky napočítáno celkem (${uom} · 1 ks = ${formatQty(pkg.unitSize)} ${uom}${pkg.hasCarton ? `, 1 karton = ${pkg.piecesPerCarton} ks = ${formatQty(pkg.cartonSize)} ${uom}` : ''})</label>
+                  <label>Fyzicky napočítáno celkem (${uom} · 1 ks = ${formatQty(pkg.unitSize)} ${uom}${pkg.hasCarton ? `, 1 krabice = ${pkg.piecesPerCarton} ks = ${formatQty(pkg.cartonSize)} ${uom}` : ''})</label>
                   <input class="input mono" type="number" name="actual" min="0" step="any" inputmode="decimal" value="${defaultVal}" placeholder="Zadej počet v ${uom}…" />
                 </div>
 
@@ -829,7 +829,7 @@ export function createInventoryTab(ctx) {
                 <th class="num">Stav BC</th>
                 <th class="num">Skutečný</th>
                 <th class="num">Rozdíl</th>
-                <th>Kartony / balení</th>
+                <th>Krabice / balení</th>
                 <th>Poznámka</th>
               </tr>
             </thead>

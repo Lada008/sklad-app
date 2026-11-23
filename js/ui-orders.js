@@ -509,15 +509,15 @@ export function createOrdersTab(ctx) {
     const quickCalcHtml = pkg.hasCarton
       ? `<div class="inv-pack-helper" style="margin:6px 0;">
            <span>📦 Rychlý přepočet:</span>
-           <input type="number" min="0" step="1" inputmode="decimal" placeholder="kart." data-ord-carton-mult="${pkg.cartonSize}" aria-label="Počet celých kartonů" />
-           <span><strong>kartonů</strong> (× <strong class="mono">${pkg.piecesPerCarton} ks</strong> = <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong>)</span>
+           <input type="number" min="0" step="1" inputmode="decimal" placeholder="krab." data-ord-carton-mult="${pkg.cartonSize}" aria-label="Počet celých krabic" />
+           <span><strong>krabic</strong> (× <strong class="mono">${pkg.piecesPerCarton} ks</strong> = <strong class="mono">${formatQty(pkg.cartonSize)} ${uom}</strong>)</span>
          </div>`
       : '';
 
     const cartonBtns = pkg.hasCarton
       ? `
-          <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.cartonSize}">−${formatQty(pkg.cartonSize)} ${uom} (−1 kart.)</button>
-          <button type="button" class="stepper-btn stepper-btn-sm is-carton" data-ord-delta="${pkg.cartonSize}">+${formatQty(pkg.cartonSize)} ${uom} (+1 kart. · ${pkg.piecesPerCarton} ks)</button>
+          <button type="button" class="stepper-btn stepper-btn-sm" data-ord-delta="${-pkg.cartonSize}">−${formatQty(pkg.cartonSize)} ${uom} (−1 krab.)</button>
+          <button type="button" class="stepper-btn stepper-btn-sm is-carton" data-ord-delta="${pkg.cartonSize}">+${formatQty(pkg.cartonSize)} ${uom} (+1 krab. · ${pkg.piecesPerCarton} ks)</button>
         `
       : '';
 
@@ -727,8 +727,8 @@ export function createOrdersTab(ctx) {
               <div class="ord-cart-steppers">
                 ${
                   pkg.hasCarton
-                    ? `<button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${-pkg.cartonSize}">−1 kart.</button>
-                       <button type="button" class="stepper-btn stepper-btn-xs is-carton" data-cart-idx="${idx}" data-cart-delta="${pkg.cartonSize}">+1 kart. (+${formatQty(pkg.cartonSize)} ${uom})</button>`
+                    ? `<button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${-pkg.cartonSize}">−1 krab.</button>
+                       <button type="button" class="stepper-btn stepper-btn-xs is-carton" data-cart-idx="${idx}" data-cart-delta="${pkg.cartonSize}">+1 krab. (+${formatQty(pkg.cartonSize)} ${uom})</button>`
                     : ''
                 }
                 <button type="button" class="stepper-btn stepper-btn-xs" data-cart-idx="${idx}" data-cart-delta="${-pkg.unitSize}">−1 ks</button>

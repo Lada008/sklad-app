@@ -144,27 +144,27 @@ const HELP_SECTIONS = {
     </div>
     <div class="help-step">
       <div class="help-step-title">🧮 Kalkulačka dávkování &amp; 📤 Sdílení</div>
-      <p>Rozklikni <strong>🧮 Kalkulačka dávkování</strong> na kartě produktu, vyber dávku z ÚKZÚZ (nebo zadej vlastní) a výměru v <strong>ha</strong>. Aplikace sama zaokrouhlí nahoru na celá balení (kartony + volné kusy), zkontroluje sklad a jedním klikem ji vloží do objednávky nebo nasdílí zákazníkovi přes <strong>📤 Sdílet / 💬 WhatsApp</strong>.</p>
+      <p>Rozklikni <strong>🧮 Kalkulačka dávkování</strong> na kartě produktu, vyber dávku z ÚKZÚZ (nebo zadej vlastní) a výměru v <strong>ha</strong>. Aplikace sama zaokrouhlí nahoru na celá balení (krabice + volné kusy), zkontroluje sklad a jedním klikem ji vloží do objednávky nebo nasdílí zákazníkovi přes <strong>📤 Sdílet / 💬 WhatsApp</strong>.</p>
     </div>
     <div class="help-actions"><button type="button" class="btn btn-primary btn-sm" data-help-goto="search">🔍 Přejít do Hledat</button></div>
   `,
   cartons: `
     <div class="help-step">
-      <div class="help-step-title">📦 Automatická pravidla pro kartony a kusy</div>
-      <p>Aplikace sama pozná velikost balení z názvu položky a všude zobrazuje celkové litry/kg i rozpad na celé kartony a volné kusy (např. <code>55 L = 2 kartony + 3 kanystry po 5 L</code>):</p>
+      <div class="help-step-title">📦 Automatická pravidla pro krabice a kusy</div>
+      <p>Aplikace sama pozná velikost balení z názvu položky a všude zobrazuje celkové litry/kg i rozpad na celé krabice a volné kusy (např. <code>55 L = 2 krabice + 3 kanystry po 5 L</code>):</p>
       <table class="help-table">
-        <thead><tr><th>Balení v názvu</th><th>1 kus</th><th>1 karton (balení)</th><th>Tlačítka</th></tr></thead>
+        <thead><tr><th>Balení v názvu</th><th>1 kus</th><th>1 krabice (balení)</th><th>Tlačítka</th></tr></thead>
         <tbody>
           <tr><td><strong>5 L / 5 kg</strong></td><td>5 L / kg</td><td><strong>4 ks = 20 L / kg</strong></td><td><code>±5</code> / <code>±20</code></td></tr>
           <tr><td><strong>1 L / 1 kg</strong></td><td>1 L / kg</td><td><strong>12 ks = 12 L / kg</strong></td><td><code>±1</code> / <code>±12</code></td></tr>
           <tr><td><strong>10 L / 10 kg</strong></td><td>10 L / kg</td><td><strong>2 ks = 20 L / kg</strong></td><td><code>±10</code> / <code>±20</code></td></tr>
-          <tr><td><strong>20 L, 50 L, 1000 L IBC</strong></td><td>1 balení</td><td>bez kartonu (1 bal. = 1 ks)</td><td><code>±1 ks</code> / <code>+5 ks</code></td></tr>
+          <tr><td><strong>20 L, 50 L, 1000 L IBC</strong></td><td>1 balení</td><td>bez krabice (1 bal. = 1 ks)</td><td><code>±1 ks</code> / <code>+5 ks</code></td></tr>
         </tbody>
       </table>
     </div>
     <div class="help-step">
-      <div class="help-step-title">⚙️ Vlastní počet kusů v kartonu</div>
-      <p>Pokud má konkrétní přípravek atypický karton (např. 6 ks po 2 L), otevři na jeho kartě v záložce <strong>Hledat</strong> sekci <em>⚙️ Upravit přepočet kusů a kartonů</em> a ulož vlastní hodnoty.</p>
+      <div class="help-step-title">⚙️ Vlastní počet kusů v krabici</div>
+      <p>Pokud má konkrétní přípravek atypickou krabici (např. 6 ks po 2 L), otevři na jeho kartě v záložce <strong>Hledat</strong> sekci <em>⚙️ Upravit přepočet kusů a krabic</em> a ulož vlastní hodnoty.</p>
     </div>
   `,
   orders: `
@@ -174,7 +174,7 @@ const HELP_SECTIONS = {
         <li>Vyplň <strong>Obchodníka</strong> (uloží se pro příště) a vyber <strong>Středisko / lokaci závozu</strong>.</li>
         <li>Vyber <strong>Odběratele</strong> z našeptávače (řazeno od nejvyššího obratu). Pokud má zákazník <em>zůstatek po splatnosti</em>, zobrazí se oranžové upozornění.</li>
         <li>Zvol <strong>Do kdy doručit</strong> (rychlá tlačítka <em>Ihned/Zítra</em>, <em>Do 3 dnů</em>, <em>Tento týden</em>).</li>
-        <li>Přidej položky ze skladu (můžeš použít <strong>Rychlý přepočet kartonů</strong> nebo tlačítka <code>+1 karton</code> / <code>+1 ks</code>).</li>
+        <li>Přidej položky ze skladu (můžeš použít <strong>Rychlý přepočet krabic</strong> nebo tlačítka <code>+1 krabice</code> / <code>+1 ks</code>).</li>
         <li>Klikni na <strong>🚀 Odeslat objednávku</strong> — zapíše se do Google Tabulky a odešle e-mailem.</li>
       </ol>
     </div>
@@ -190,7 +190,7 @@ const HELP_SECTIONS = {
       <ol>
         <li>Vyber skladový úsek (např. <strong>Boršice</strong> nebo <strong>Valmez</strong>).</li>
         <li>Přepínač <strong>🙈 Slepá inventura</strong> skryje stav z BC (vypnutím zapneš tlačítko <strong>✅ Sedí</strong> jedním klepnutím).</li>
-        <li>U položky zadej počet celých kartonů v <strong>📦 Rychlém přepočtu</strong> (např. <code>kartonů × 4 ks = 20 L</code>) a doklikej volné kusy tlačítky <code>±5</code> / <code>±20</code> (nebo <code>±1</code> / <code>±12</code>).</li>
+        <li>U položky zadej počet celých krabic v <strong>📦 Rychlém přepočtu</strong> (např. <code>krabic × 4 ks = 20 L</code>) a doklikej volné kusy tlačítky <code>±5</code> / <code>±20</code> (nebo <code>±1</code> / <code>±12</code>).</li>
         <li>Volitelně napiš <strong>Poznámku</strong> a klikni na <strong>☁️ Uložit &amp; odeslat</strong>. Záznam se hned zapíše do Google Tabulky (list <code>Inventura</code>).</li>
       </ol>
     </div>
