@@ -2923,3 +2923,86 @@ button {
   margin-top: 9px;
 }
 
+/* Help & Tutorial Modal */
+.help-modal-card {
+  max-width: 660px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.help-step {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--ink-secondary);
+}
+
+.help-step p {
+  margin: 0 0 6px;
+}
+
+.help-step p:last-child {
+  margin-bottom: 0;
+}
+
+.help-step ul,
+.help-step ol {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.help-step li {
+  margin-bottom: 4px;
+}
+
+.help-step-title {
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.help-table th,
+.help-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.help-table th {
+  background: var(--brand-50);
+  color: var(--brand-900);
+  font-weight: 800;
+  font-size: 0.74rem;
+}
+
+.help-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.help-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+

@@ -42,6 +42,10 @@
       </div>
 
       <div class="header-actions">
+        <button type="button" id="header-help-btn" class="header-refresh-btn" title="Návod a nápověda, jak aplikaci používat">
+          <span aria-hidden="true">❓</span>
+          <span class="refresh-label-long">Nápověda</span>
+        </button>
         <button type="button" id="header-refresh-btn" class="header-refresh-btn" title="Obnovit data ze serveru (Google Tabulka)">
           <span class="refresh-icon" aria-hidden="true">🔄</span>
           <span class="refresh-label-long">Obnovit data</span>
@@ -140,6 +144,29 @@
         <div class="scanner-reticle" aria-hidden="true"></div>
       </div>
       <p id="scanner-status" class="section-sub" style="text-align: center;"></p>
+    </div>
+  </div>
+
+  <!-- Modal: Nápověda & rychlý návod -->
+  <div id="help-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+    <div class="modal-card help-modal-card">
+      <div class="section-header" style="margin-bottom: 10px;">
+        <div>
+          <h3 id="help-title" class="section-title">📖 Návod — jak používat Skladový asistent</h3>
+          <p class="section-sub">Rychlý průvodce pro obchodníky v terénu, skladníky i kancelář (PC ↔ Mobil).</p>
+        </div>
+        <button type="button" id="help-close-btn" class="btn btn-sm">✕ Zavřít</button>
+      </div>
+
+      <div id="help-tabs" class="chip-row" style="margin-bottom: 12px;" role="tablist">
+        <button type="button" class="chip is-active" data-help-sec="search">🔍 Hledat &amp; Kalkulačka</button>
+        <button type="button" class="chip" data-help-sec="cartons">📦 Kartony</button>
+        <button type="button" class="chip" data-help-sec="orders">🛒 Objednávky</button>
+        <button type="button" class="chip" data-help-sec="inventory">📋 Inventura</button>
+        <button type="button" class="chip" data-help-sec="sync">☁️ Data &amp; Mobil</button>
+      </div>
+
+      <div id="help-body" class="help-body"></div>
     </div>
   </div>
 

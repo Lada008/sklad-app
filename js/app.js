@@ -126,6 +126,154 @@ wakeBtn?.addEventListener('click', () => {
   );
 });
 
+// --- Tlačítko Nápověda & průvodce v hlavičce ---
+const HELP_SECTIONS = {
+  search: `
+    <div class="help-step">
+      <div class="help-step-title">🔍 Okamžité vyhledávání a agronomické filtry</div>
+      <p>Piš klidně <strong>bez diakritiky a po více slovech</strong> — např. <code>pictor 151bo</code>, <code>tebukonazol</code> nebo číslo šarže. Nahoře můžeš filtrovat sklad (<strong>Vše / Boršice / Valmez / Komise</strong>).</p>
+      <ul>
+        <li><strong>🌾 Plodina (stříkání):</strong> rychlé přepnutí na Obiloviny, Řepku, Révu, Kukuřici apod.</li>
+        <li><strong>💧 OP II. st. / 🐝 Včely:</strong> jedním klepnutím skryješ přípravky s omezením pro vody nebo včely (ZNV, NV, SPe8).</li>
+        <li><strong>📦 Pouze skladem:</strong> vypnutím zobrazíš celý registr ÚKZÚZ (i přípravky, které zrovna nemáme skladem).</li>
+      </ul>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">🔄 Alternativy (skladem + mimo sklad)</div>
+      <p>Na kartě přípravku klikni na <strong>🔄 Alternativy</strong>. Aplikace ukáže nejprve <strong>přesné náhrady skladem</strong> (stejná účinná látka + srovnání koncentrace), poté <strong>stejnou chemickou skupinu skladem</strong> a níže i <strong>registrované alternativy mimo sklad</strong> z katalogu ÚKZÚZ.</p>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">🧮 Kalkulačka dávkování &amp; 📤 Sdílení</div>
+      <p>Rozklikni <strong>🧮 Kalkulačka dávkování</strong> na kartě produktu, vyber dávku z ÚKZÚZ (nebo zadej vlastní) a výměru v <strong>ha</strong>. Aplikace sama zaokrouhlí nahoru na celá balení (kartony + volné kusy), zkontroluje sklad a jedním klikem ji vloží do objednávky nebo nasdílí zákazníkovi přes <strong>📤 Sdílet / 💬 WhatsApp</strong>.</p>
+    </div>
+    <div class="help-actions"><button type="button" class="btn btn-primary btn-sm" data-help-goto="search">🔍 Přejít do Hledat</button></div>
+  `,
+  cartons: `
+    <div class="help-step">
+      <div class="help-step-title">📦 Automatická pravidla pro kartony a kusy</div>
+      <p>Aplikace sama pozná velikost balení z názvu položky a všude zobrazuje celkové litry/kg i rozpad na celé kartony a volné kusy (např. <code>55 L = 2 kartony + 3 kanystry po 5 L</code>):</p>
+      <table class="help-table">
+        <thead><tr><th>Balení v názvu</th><th>1 kus</th><th>1 karton (balení)</th><th>Tlačítka</th></tr></thead>
+        <tbody>
+          <tr><td><strong>5 L / 5 kg</strong></td><td>5 L / kg</td><td><strong>4 ks = 20 L / kg</strong></td><td><code>±5</code> / <code>±20</code></td></tr>
+          <tr><td><strong>1 L / 1 kg</strong></td><td>1 L / kg</td><td><strong>12 ks = 12 L / kg</strong></td><td><code>±1</code> / <code>±12</code></td></tr>
+          <tr><td><strong>10 L / 10 kg</strong></td><td>10 L / kg</td><td><strong>2 ks = 20 L / kg</strong></td><td><code>±10</code> / <code>±20</code></td></tr>
+          <tr><td><strong>20 L, 50 L, 1000 L IBC</strong></td><td>1 balení</td><td>bez kartonu (1 bal. = 1 ks)</td><td><code>±1 ks</code> / <code>+5 ks</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">⚙️ Vlastní počet kusů v kartonu</div>
+      <p>Pokud má konkrétní přípravek atypický karton (např. 6 ks po 2 L), otevři na jeho kartě v záložce <strong>Hledat</strong> sekci <em>⚙️ Upravit přepočet kusů a kartonů</em> a ulož vlastní hodnoty.</p>
+    </div>
+  `,
+  orders: `
+    <div class="help-step">
+      <div class="help-step-title">🛒 Zadání objednávky z terénu</div>
+      <ol>
+        <li>Vyplň <strong>Obchodníka</strong> (uloží se pro příště) a vyber <strong>Středisko / lokaci závozu</strong>.</li>
+        <li>Vyber <strong>Odběratele</strong> z našeptávače (řazeno od nejvyššího obratu). Pokud má zákazník <em>zůstatek po splatnosti</em>, zobrazí se oranžové upozornění.</li>
+        <li>Zvol <strong>Do kdy doručit</strong> (rychlá tlačítka <em>Ihned/Zítra</em>, <em>Do 3 dnů</em>, <em>Tento týden</em>).</li>
+        <li>Přidej položky ze skladu (můžeš použít <strong>Rychlý přepočet kartonů</strong> nebo tlačítka <code>+1 karton</code> / <code>+1 ks</code>).</li>
+        <li>Klikni na <strong>🚀 Odeslat objednávku</strong> — zapíše se do Google Tabulky a odešle e-mailem.</li>
+      </ol>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">📋 Odbavení ve skladu &amp; Sdílení</div>
+      <p>V dolní části záložky vidí kancelář i skladník všechny přijaté objednávky. Skladník může doplnit <strong>vychystanou šarži</strong>, změnit stav (<em>Nová → Vychystává se → Vychystáno → Expedováno</em>) nebo objednávku poslat přes <strong>📤 Sdílet / 💬 WhatsApp</strong>.</p>
+    </div>
+    <div class="help-actions"><button type="button" class="btn btn-primary btn-sm" data-help-goto="orders">🛒 Přejít do Objednávek</button></div>
+  `,
+  inventory: `
+    <div class="help-step">
+      <div class="help-step-title">📱 Počítání na mobilu (v hale i bez signálu)</div>
+      <ol>
+        <li>Vyber skladový úsek (např. <strong>Boršice</strong> nebo <strong>Valmez</strong>).</li>
+        <li>Přepínač <strong>🙈 Slepá inventura</strong> skryje stav z BC (vypnutím zapneš tlačítko <strong>✅ Sedí</strong> jedním klepnutím).</li>
+        <li>U položky zadej počet celých kartonů v <strong>📦 Rychlém přepočtu</strong> (např. <code>kartonů × 4 ks = 20 L</code>) a doklikej volné kusy tlačítky <code>±5</code> / <code>±20</code> (nebo <code>±1</code> / <code>±12</code>).</li>
+        <li>Volitelně napiš <strong>Poznámku</strong> a klikni na <strong>☁️ Uložit &amp; odeslat</strong>. Záznam se hned zapíše do Google Tabulky (list <code>Inventura</code>).</li>
+      </ol>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">💻 Kontrola rozdílů a export do Excelu na PC</div>
+      <p>Ve spodní tabulce <strong>☁️ Zapsané záznamy inventury</strong> se každý zápis z mobilu okamžitě objeví na PC (tlačítkem <strong>🔄 Obnovit z cloudu</strong> stáhneš nejnovější). Rozdíly jsou barevně zvýrazněny (červeně manko, žlutě přebytek) a tlačítkem <strong>📊 Export do Excelu (.xlsx)</strong> stáhneš hotovou tabulku.</p>
+    </div>
+    <div class="help-actions"><button type="button" class="btn btn-primary btn-sm" data-help-goto="inventory">📋 Přejít do Inventury</button></div>
+  `,
+  sync: `
+    <div class="help-step">
+      <div class="help-step-title">📊 Jak aktualizovat sklad z Business Central (PC → Mobil)</div>
+      <ol>
+        <li>V Business Centralu vyexportuj <strong>Položky zboží</strong> do souboru <code>sklad.xlsx</code>.</li>
+        <li>Na PC otevři záložku <strong>Data</strong> a přetáhni <code>sklad.xlsx</code> do pole pro nahrání.</li>
+        <li>Aplikace automaticky vyfiltruje jen otevřené zůstatky (<code>Otevřeno == 1</code> a <code>Zůstatek &gt; 0</code>), sloučí je po šaržích a lokacích a <strong>okamžitě odešle do Google Tabulky</strong>.</li>
+        <li>Po zobrazení zelené hlášky <strong>„Sklad odeslán do cloudu (X položek)“</strong> mají všichni obchodníci v mobilu čerstvá data (při otevření aplikace nebo po kliknutí na <strong>🔄 Obnovit data</strong>).</li>
+      </ol>
+    </div>
+    <div class="help-step">
+      <div class="help-step-title">🔆 Režim skladu &amp; instalace na plochu mobilu</div>
+      <ul>
+        <li><strong>Displej nezhasne:</strong> zelené tlačítko vpravo nahoře udržuje obrazovku mobilu rozsvícenou během inventury a vychystávání.</li>
+        <li><strong>Přidání na plochu (PWA):</strong> v prohlížeči na mobilu zvol <em>Sdílet → Přidat na plochu</em> (iOS) nebo <em>Přidat na domovskou obrazovku</em> (Android) — aplikace se pak spouští jako nativní program a funguje i offline.</li>
+      </ul>
+    </div>
+    <div class="help-actions"><button type="button" class="btn btn-primary btn-sm" data-help-goto="data">💾 Přejít do Data</button></div>
+  `,
+};
+
+const helpModal = document.getElementById('help-modal');
+const helpBody = document.getElementById('help-body');
+const helpTabs = document.getElementById('help-tabs');
+const headerHelpBtn = document.getElementById('header-help-btn');
+const helpCloseBtn = document.getElementById('help-close-btn');
+
+function renderHelpSection(secKey = 'search') {
+  if (!helpBody) return;
+  const key = HELP_SECTIONS[secKey] ? secKey : 'search';
+  helpTabs?.querySelectorAll('[data-help-sec]').forEach((b) => {
+    b.classList.toggle('is-active', b.dataset.helpSec === key);
+  });
+  helpBody.innerHTML = HELP_SECTIONS[key];
+}
+
+function openHelpModal(secKey = null) {
+  if (!helpModal) return;
+  const mapTabToHelp = {
+    search: 'search',
+    orders: 'orders',
+    inventory: 'inventory',
+    data: 'sync',
+    expirations: 'search',
+    reports: 'inventory',
+  };
+  renderHelpSection(secKey || mapTabToHelp[state.activeTab] || 'search');
+  helpModal.hidden = false;
+}
+
+function closeHelpModal() {
+  if (helpModal) helpModal.hidden = true;
+}
+
+headerHelpBtn?.addEventListener('click', () => openHelpModal());
+helpCloseBtn?.addEventListener('click', closeHelpModal);
+helpModal?.addEventListener('click', (e) => {
+  if (e.target === helpModal) closeHelpModal();
+});
+helpTabs?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-help-sec]');
+  if (btn) renderHelpSection(btn.dataset.helpSec);
+});
+helpBody?.addEventListener('click', (e) => {
+  const gotoBtn = e.target.closest('[data-help-goto]');
+  if (gotoBtn) {
+    closeHelpModal();
+    switchTab(gotoBtn.dataset.helpGoto);
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && helpModal && !helpModal.hidden) closeHelpModal();
+});
+
 // --- Tlačítko Obnovit data v hlavičce ---
 const headerRefreshBtn = document.getElementById('header-refresh-btn');
 headerRefreshBtn?.addEventListener('click', () => {
