@@ -5,7 +5,7 @@
  *   inventury, hlášení nesrovnalostí, vlastních balení a předvoleb.
  */
 
-import { DEFAULT_GAS_URL, DEFAULT_NOTIFY_EMAIL } from './gas-api.js';
+import { DEFAULT_GAS_URL, DEFAULT_NOTIFY_EMAIL, LEGACY_GAS_URLS } from './gas-api.js';
 
 const DB_NAME = 'sklad_asistent_db';
 const DB_VERSION = 1;
@@ -216,7 +216,10 @@ export function clearRecentSearches() {
 export function loadPrefs() {
   const saved = readJson(LS_KEYS.prefs, {});
   const merged = { ...DEFAULT_PREFS, ...(saved && typeof saved === 'object' ? saved : {}) };
-  if (!merged.gasUrl) merged.gasUrl = DEFAULT_GAS_URL;
+  if (!merged.gasUrl || LEGACY_GAS_URLS.includes(String(merged.gasUrl).trim())) {
+    merged.gasUrl = DEFAULT_GAS_URL;
+    writeJson(LS_KEYS.prefs, merged);
+  }
   if (!merged.notifyEmail) merged.notifyEmail = DEFAULT_NOTIFY_EMAIL;
   return merged;
 }

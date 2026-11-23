@@ -16,7 +16,11 @@ import {
 } from './xlsx-parser.js';
 
 export const DEFAULT_GAS_URL =
-  'https://script.google.com/macros/s/AKfycbxePeToJLxZwQrNZ8ceiZHF1IMVfa8EfUoy-gTqWNqaVihNySAiP9hX2d9P3o5Lj5FJew/exec';
+  'https://script.google.com/macros/s/AKfycbyphJQpsFyrJ4ogYncosiIy_l4fBmbOnA61H7Ceu-fmXYk-3x1e6VwK4C875J3SCvu3eg/exec';
+
+export const LEGACY_GAS_URLS = [
+  'https://script.google.com/macros/s/AKfycbxePeToJLxZwQrNZ8ceiZHF1IMVfa8EfUoy-gTqWNqaVihNySAiP9hX2d9P3o5Lj5FJew/exec',
+];
 
 export const DEFAULT_NOTIFY_EMAIL = 'ladislav.penaz@lukrom.cz';
 
