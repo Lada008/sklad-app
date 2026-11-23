@@ -194,6 +194,15 @@ export function createSearchTab(ctx) {
     }
   });
 
+  function clearSearchQuery() {
+    if (!query && !selectedExactName) return;
+    query = '';
+    selectedExactName = null;
+    inputEl.value = '';
+    clearBtn.hidden = true;
+    acEl.hidden = true;
+  }
+
   ulDropdownEl.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-ul-pick]');
     if (!btn) return;
@@ -203,6 +212,7 @@ export function createSearchTab(ctx) {
     } else {
       selectedSubstances = selectedSubstances.filter((x) => x !== ulName);
     }
+    clearSearchQuery();
     ulInputEl.value = '';
     ulSearchQuery = '';
     ulDropdownEl.hidden = true;
@@ -245,12 +255,8 @@ export function createSearchTab(ctx) {
   });
 
   clearBtn.addEventListener('click', () => {
-    query = '';
-    selectedExactName = null;
+    clearSearchQuery();
     visibleLimit = PAGE_SIZE;
-    inputEl.value = '';
-    clearBtn.hidden = true;
-    acEl.hidden = true;
     inputEl.focus();
     renderResults();
   });
@@ -274,6 +280,7 @@ export function createSearchTab(ctx) {
   cropTabsEl.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-crop]');
     if (!btn) return;
+    clearSearchQuery();
     selectedCrop = btn.dataset.crop;
     visibleLimit = PAGE_SIZE;
     renderCropTabs();
@@ -285,6 +292,7 @@ export function createSearchTab(ctx) {
   safetyChipsEl.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-safety]');
     if (!btn) return;
+    clearSearchQuery();
     const key = btn.dataset.safety;
     if (key === 'stock') inStockOnly = !inStockOnly;
     else if (key === 'pho') phoAllowedOnly = !phoAllowedOnly;
@@ -300,6 +308,7 @@ export function createSearchTab(ctx) {
   catEl.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-cat]');
     if (!chip) return;
+    clearSearchQuery();
     selectedCategory = chip.dataset.cat;
     visibleLimit = PAGE_SIZE;
     renderCategories();
@@ -328,14 +337,15 @@ export function createSearchTab(ctx) {
     const ulChipBtn = e.target.closest('[data-filter-ul]');
     if (ulChipBtn) {
       const ulName = ulChipBtn.dataset.filterUl;
+      clearSearchQuery();
       if (!selectedSubstances.includes(ulName)) {
         selectedSubstances.push(ulName);
-        visibleLimit = PAGE_SIZE;
-        renderSelectedUlTags();
-        renderCropTabs();
-        renderCategories();
-        renderResults();
       }
+      visibleLimit = PAGE_SIZE;
+      renderSelectedUlTags();
+      renderCropTabs();
+      renderCategories();
+      renderResults();
       return;
     }
 
