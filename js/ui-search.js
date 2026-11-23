@@ -1493,7 +1493,7 @@ export function createSearchTab(ctx) {
 
         <div class="por-alt-bar">
           <button type="button" class="btn btn-sm por-alt-btn ${isAltOpen ? 'is-active' : ''}" data-toggle-alt="${escapeHtml(altKey)}">
-            <span>🔄 Alternativy (skladem + mimo sklad)</span>
+            <span class="por-alt-label">🔄 Alternativy / náhrady</span>
             <span class="alt-count-badge">${totalAlts} skladem</span>
           </button>
         </div>

@@ -1581,9 +1581,17 @@ button {
 .por-alt-btn {
   width: 100%;
   justify-content: space-between;
+  gap: 8px;
+  white-space: normal;
+  text-align: left;
   background: var(--surface);
   border-color: var(--border-strong);
   color: var(--brand-900);
+}
+
+.por-alt-label {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .por-alt-btn.is-active {
@@ -1596,14 +1604,16 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   min-width: 22px;
   height: 22px;
-  padding: 0 7px;
+  padding: 0 8px;
   border-radius: var(--radius-pill);
   background: var(--brand-50);
   color: var(--brand-900);
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
