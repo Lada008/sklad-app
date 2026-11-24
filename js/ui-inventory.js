@@ -22,6 +22,7 @@ import {
   triggerFileDownload,
 } from './domain.js';
 import { gasSaveInventura } from './gas-api.js';
+import { isScannerSupported, openLotScanner } from './scanner.js';
 import { saveInventoryRecords } from './storage.js';
 
 const SECTIONS = [
@@ -96,14 +97,26 @@ export function createInventoryTab(ctx) {
           <circle cx="11" cy="11" r="8"></circle>
           <path d="m21 21-4.3-4.3"></path>
         </svg>
-        <input type="search" id="inv-search-input" class="search-input" placeholder="Rychlé vyhledání v inventuře (název, kód, lokace, šarže)…" autocomplete="off" />
+        <input type="search" id="inv-search-input" class="search-input" placeholder="Hledej nebo naskenuj 2D šarži (název, kód, šarže)…" autocomplete="off" />
         <button type="button" id="inv-search-clear" class="search-action-btn" aria-label="Vymazat filtr" hidden>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
             <path d="M18 6 6 18M6 6l12 12"></path>
           </svg>
         </button>
+        <button type="button" id="inv-scan-btn" class="search-action-btn" title="Skenovat 2D kód (QR / DataMatrix) šarže" aria-label="Skenovat 2D kód šarže" hidden>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <path d="M14 14h3v3h-3z"></path>
+            <path d="M20 14v3h-3"></path>
+            <path d="M14 20h6"></path>
+          </svg>
+        </button>
       </div>
     </div>
+
+    <div id="inv-lot-summary" hidden style="margin-bottom: 10px;"></div>
 
     <div id="inv-filter-chips" class="chip-row" style="margin-bottom: 10px;"></div>
     <div id="inv-list"></div>
@@ -116,12 +129,18 @@ export function createInventoryTab(ctx) {
   const progressArea = document.getElementById('inv-progress-area');
   const searchInput = document.getElementById('inv-search-input');
   const searchClear = document.getElementById('inv-search-clear');
+  const scanBtn = document.getElementById('inv-scan-btn');
+  const lotSummaryEl = document.getElementById('inv-lot-summary');
   const filterChips = document.getElementById('inv-filter-chips');
   const listEl = document.getElementById('inv-list');
   const cloudTableWrap = document.getElementById('inv-cloud-table-wrap');
   const unsyncedBanner = document.getElementById('inv-unsynced-banner');
   const refreshCloudBtn = document.getElementById('inv-refresh-cloud-btn');
   const exportXlsxBtn = document.getElementById('inv-export-xlsx-btn');
+
+  if (isScannerSupported()) {
+    scanBtn.hidden = false;
+  }
 
   sectionSelect.addEventListener('change', () => {
     ctx.setPrefs({ invSection: sectionSelect.value });
@@ -157,6 +176,69 @@ export function createInventoryTab(ctx) {
     searchClear.hidden = true;
     visibleLimit = INV_PAGE_SIZE;
     renderListOnly();
+  });
+
+  scanBtn.addEventListener('click', () => {
+    openLotScanner({
+      items: ctx.state.items,
+      title: '📷 Skenovat šarži (QR / 2D kód)',
+      hint: 'Namiř na QR nebo DataMatrix kód se šarží (čárové kódy se ignorují)…',
+      onDetect: ({ term, matchedType }) => {
+        searchText = term;
+        searchInput.value = term;
+        searchClear.hidden = !term.length;
+        visibleLimit = INV_PAGE_SIZE;
+
+        // Pokud naskenovaná šarže neodpovídá aktuálnímu filtru (např. už je hotová), přepni na Vše
+        if (filterView !== 'all' && term) {
+          const qNorm = normalizeText(term);
+          const allItems = getSectionItems();
+          const hasInCurrentView = allItems.some((it) => {
+            if (!it.search.includes(qNorm)) return false;
+            const rec = findRecordForItem(it);
+            if (filterView === 'pending') return !rec;
+            if (filterView === 'done') return Boolean(rec);
+            if (filterView === 'diff') return Boolean(rec && rec.diff !== 0);
+            return true;
+          });
+          if (!hasInCurrentView && allItems.some((it) => it.search.includes(qNorm))) {
+            filterView = 'all';
+          }
+        }
+
+        render();
+        ctx.toast(
+          matchedType ? `📷 Nalezena ${matchedType}: ${term}` : `📷 Naskenováno: ${term}`,
+          'success'
+        );
+      },
+    });
+  });
+
+  lotSummaryEl.addEventListener('click', (e) => {
+    const showAllBtn = e.target.closest('[data-lot-show-all-product]');
+    if (showAllBtn) {
+      const prodName = showAllBtn.dataset.lotShowAllProduct || '';
+      filterView = 'all';
+      searchText = prodName;
+      searchInput.value = prodName;
+      searchClear.hidden = !prodName.length;
+      visibleLimit = INV_PAGE_SIZE;
+      render();
+      return;
+    }
+
+    const switchSecBtn = e.target.closest('[data-lot-switch-section]');
+    if (switchSecBtn) {
+      const nextSec = switchSecBtn.dataset.lotSwitchSection;
+      if (nextSec) {
+        ctx.setPrefs({ invSection: nextSec });
+        filterView = 'all';
+        visibleLimit = INV_PAGE_SIZE;
+        expandedKeys.clear();
+        render();
+      }
+    }
   });
 
   filterChips.addEventListener('click', (e) => {
@@ -361,9 +443,7 @@ export function createInventoryTab(ctx) {
     return ctx.state.prefs.invMode === 'total' ? 'total' : 'lot';
   }
 
-  function getSectionItems() {
-    const section = getActiveSection();
-    const invMode = getInvMode();
+  function getSectionRawRows(section = getActiveSection()) {
     let base = ctx.state.items;
     if (section.id === 'Boršice (Sklad + Komise Boršice)') {
       base = base.filter((i) => i.wh === 'Boršice');
@@ -372,6 +452,13 @@ export function createInventoryTab(ctx) {
     } else if (section.id === 'Jen všechny komise') {
       base = base.filter((i) => String(i.loc || '').startsWith('K.'));
     }
+    return base;
+  }
+
+  function getSectionItems() {
+    const section = getActiveSection();
+    const invMode = getInvMode();
+    const base = getSectionRawRows(section);
 
     const map = new Map();
 
@@ -683,7 +770,193 @@ export function createInventoryTab(ctx) {
     renderCloudTable();
   }
 
+  function renderLotSummary() {
+    const qRaw = searchText.trim();
+    const qNorm = normalizeText(qRaw);
+    if (qNorm.length < 3) {
+      lotSummaryEl.hidden = true;
+      lotSummaryEl.innerHTML = '';
+      return;
+    }
+
+    const section = getActiveSection();
+    const sectionRaw = getSectionRawRows(section);
+    const customPacks = ctx.state.customPacks;
+
+    const isLotMatch = (row) => {
+      const lotStr = String(row.lot || '').trim();
+      if (!lotStr || lotStr === '-') return false;
+      const lotNorm = normalizeText(lotStr);
+      if (lotNorm.includes(qNorm)) return true;
+      const lotNoZeros = lotNorm.replace(/^0+/, '');
+      const qNoZeros = qNorm.replace(/^0+/, '');
+      return qNoZeros.length >= 4 && lotNoZeros.length >= 4 && lotNoZeros.includes(qNoZeros);
+    };
+
+    const matchedInSection = sectionRaw.filter((r) => r.q > 0 && isLotMatch(r));
+
+    if (matchedInSection.length > 0) {
+      const matchedCodes = Array.from(new Set(matchedInSection.map((r) => r.c))).slice(0, 3);
+      const cardsHtml = matchedCodes
+        .map((code) => {
+          const allProdRows = sectionRaw.filter((r) => r.c === code && r.q > 0);
+          const prodName = allProdRows[0]?.n || code;
+          const thisLotRows = allProdRows.filter(isLotMatch);
+          const otherLotRows = allProdRows.filter((r) => !isLotMatch(r));
+
+          const thisLotQty =
+            Math.round(thisLotRows.reduce((s, r) => s + (Number(r.q) || 0), 0) * 10000) / 10000;
+          const otherLotsQty =
+            Math.round(otherLotRows.reduce((s, r) => s + (Number(r.q) || 0), 0) * 10000) / 10000;
+          const totalProdQty = Math.round((thisLotQty + otherLotsQty) * 10000) / 10000;
+
+          const matchedLotNames = Array.from(
+            new Set(thisLotRows.map((r) => String(r.lot || '').trim()).filter(Boolean))
+          );
+
+          // Seskup ostatní šarže podle (šarže + lokace + expirace)
+          const otherGroupMap = new Map();
+          const otherUniqueLots = new Set();
+          for (const r of otherLotRows) {
+            const lotName = String(r.lot || '-').trim();
+            otherUniqueLots.add(lotName);
+            const locLbl = r._locDisplay || r.ln || r.loc || '—';
+            const gKey = `${lotName}|${locLbl}|${r.exp || ''}`;
+            const cur = otherGroupMap.get(gKey) || {
+              lot: lotName,
+              locDisplay: locLbl,
+              exp: r.exp || '',
+              qty: 0,
+            };
+            cur.qty = Math.round((cur.qty + (Number(r.q) || 0)) * 10000) / 10000;
+            otherGroupMap.set(gKey, cur);
+          }
+          const otherGroups = Array.from(otherGroupMap.values()).sort((a, b) => b.qty - a.qty);
+          const otherCount = otherUniqueLots.size;
+          const otherCountLabel =
+            otherCount === 0
+              ? 'Žádná jiná šarže'
+              : otherCount === 1
+                ? '1 jiná šarže'
+                : otherCount >= 2 && otherCount <= 4
+                  ? `${otherCount} jiné šarže`
+                  : `${otherCount} jiných šarží`;
+
+          const thisPack = prepocetNaBaleni(code, prodName, thisLotQty, customPacks);
+          const otherPack =
+            otherLotsQty > 0 ? prepocetNaBaleni(code, prodName, otherLotsQty, customPacks) : '';
+          const totalPack = prepocetNaBaleni(code, prodName, totalProdQty, customPacks);
+
+          const otherListHtml =
+            otherGroups.length > 0
+              ? `
+                <div class="inv-lot-others">
+                  <div class="inv-lot-others-title">Jiné šarže stejného zboží na úseku (${escapeHtml(section.recordName)}):</div>
+                  <div class="inv-lot-others-list">
+                    ${otherGroups
+                      .map((g) => {
+                        const gPack = prepocetNaBaleni(code, prodName, g.qty, customPacks);
+                        return `
+                          <div class="inv-lot-other-row">
+                            <div>
+                              <strong class="mono">${escapeHtml(g.lot)}</strong>
+                              <span class="inv-lot-other-meta"> · ${escapeHtml(g.locDisplay)}${g.exp ? ` · Exp: ${formatIsoDateCz(g.exp)}` : ''}</span>
+                            </div>
+                            <div class="inv-lot-other-qty">
+                              <strong class="mono">${formatQtyWithUnit(g.qty, prodName)}</strong>
+                              <span>(${escapeHtml(gPack)})</span>
+                            </div>
+                          </div>
+                        `;
+                      })
+                      .join('')}
+                  </div>
+                  <div style="margin-top:8px;">
+                    <button type="button" class="btn btn-sm" data-lot-show-all-product="${escapeHtml(prodName)}">📋 Zobrazit všechny šarže „${escapeHtml(prodName)}“</button>
+                  </div>
+                </div>
+              `
+              : `<div class="inv-lot-none-note">✓ Na úseku <strong>${escapeHtml(section.recordName)}</strong> není toto zboží v žádné jiné šarži.</div>`;
+
+          return `
+            <div class="inv-lot-summary-card">
+              <div class="inv-lot-summary-head">
+                <div>
+                  <div class="inv-lot-summary-kicker">🏷️ Přehled podle šarže · ${escapeHtml(section.recordName)}</div>
+                  <div class="inv-lot-summary-name">${escapeHtml(prodName)}</div>
+                </div>
+                <span class="code-chip">Šarže: ${escapeHtml(matchedLotNames.join(', '))}</span>
+              </div>
+
+              <div class="inv-lot-kpi-grid">
+                <div class="inv-lot-kpi">
+                  <div class="inv-lot-kpi-lbl">Tato šarže</div>
+                  <div class="inv-lot-kpi-val mono">${formatQtyWithUnit(thisLotQty, prodName)}</div>
+                  <div class="inv-lot-kpi-sub">${escapeHtml(thisPack)}</div>
+                </div>
+                <div class="inv-lot-kpi ${otherLotsQty > 0 ? 'is-accent' : ''}">
+                  <div class="inv-lot-kpi-lbl">V jiných šaržích</div>
+                  <div class="inv-lot-kpi-val mono">${formatQtyWithUnit(otherLotsQty, prodName)}</div>
+                  <div class="inv-lot-kpi-sub">${otherLotsQty > 0 ? `${otherCountLabel} · ${escapeHtml(otherPack)}` : otherCountLabel}</div>
+                </div>
+                <div class="inv-lot-kpi is-total">
+                  <div class="inv-lot-kpi-lbl">Celkem zboží tady</div>
+                  <div class="inv-lot-kpi-val mono">${formatQtyWithUnit(totalProdQty, prodName)}</div>
+                  <div class="inv-lot-kpi-sub">${escapeHtml(totalPack)}</div>
+                </div>
+              </div>
+
+              ${otherListHtml}
+            </div>
+          `;
+        })
+        .join('');
+
+      lotSummaryEl.hidden = false;
+      lotSummaryEl.innerHTML = cardsHtml;
+      return;
+    }
+
+    // Šarže není na aktuálním úseku — ověř, jestli není na jiném skladu
+    const matchedElsewhere = (ctx.state.items || []).filter((r) => r.q > 0 && isLotMatch(r));
+    if (matchedElsewhere.length > 0) {
+      const sample = matchedElsewhere.slice(0, 4);
+      lotSummaryEl.hidden = false;
+      lotSummaryEl.innerHTML = `
+        <div class="inv-lot-summary-card is-warn">
+          <div class="inv-lot-summary-kicker">⚠️ Šarže nalezena na jiném skladu</div>
+          <p style="margin:4px 0 8px;font-size:0.84rem;">
+            Šarže <strong class="mono">${escapeHtml(qRaw)}</strong> není na úseku <strong>${escapeHtml(section.recordName)}</strong>, ale v BC existuje jinde:
+          </p>
+          <div class="inv-lot-others-list">
+            ${sample
+              .map(
+                (r) => `
+                  <div class="inv-lot-other-row">
+                    <div>
+                      <strong>${escapeHtml(r.n)}</strong>
+                      <span class="inv-lot-other-meta"> · ${escapeHtml(r._locDisplay || r.ln || r.loc)} · Š: <span class="mono">${escapeHtml(r.lot)}</span></span>
+                    </div>
+                    <div class="inv-lot-other-qty"><strong class="mono">${formatQtyWithUnit(r.q, r.n)}</strong></div>
+                  </div>
+                `
+              )
+              .join('')}
+          </div>
+          <div style="margin-top:8px;">
+            <button type="button" class="btn btn-sm btn-primary" data-lot-switch-section="Všechny sklady">📦 Přepnout na Všechny sklady</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    lotSummaryEl.hidden = true;
+    lotSummaryEl.innerHTML = '';
+  }
+
   function renderListOnly(precomputedItems = null) {
+    renderLotSummary();
     const items = precomputedItems || getSectionItems();
     const blindMode = Boolean(ctx.state.prefs.blindMode);
     const customPacks = ctx.state.customPacks;

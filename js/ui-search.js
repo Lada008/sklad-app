@@ -38,6 +38,7 @@ import {
   matchesActiveSubstances,
   matchesPorSafetyAndCrop,
 } from './ukzuz.js';
+import { isScannerSupported, openLotScanner } from './scanner.js';
 
 const PAGE_SIZE = 25;
 
@@ -54,8 +55,6 @@ export function createSearchTab(ctx) {
   let openAlternativesSet = new Set();
 
   let visibleLimit = PAGE_SIZE;
-  let scannerStream = null;
-  let scannerRaf = null;
 
   const panel = document.getElementById('tab-search');
 
@@ -81,13 +80,14 @@ export function createSearchTab(ctx) {
             <path d="M18 6 6 18M6 6l12 12"></path>
           </svg>
         </button>
-        <button type="button" id="search-scan-btn" class="search-action-btn" title="Skenovat čárový/QR kód kamerou" aria-label="Skenovat kód kamerou" hidden>
+        <button type="button" id="search-scan-btn" class="search-action-btn" title="Skenovat 2D kód (QR / DataMatrix) šarže" aria-label="Skenovat 2D kód šarže" hidden>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 7V5a2 2 0 0 1 2-2h2"></path>
-            <path d="M17 3h2a2 2 0 0 1 2 2v2"></path>
-            <path d="M21 17v2a2 2 0 0 1-2 2h-2"></path>
-            <path d="M7 21H5a2 2 0 0 1-2-2v-2"></path>
-            <line x1="7" y1="12" x2="17" y2="12"></line>
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+            <path d="M14 14h3v3h-3z"></path>
+            <path d="M20 14v3h-3"></path>
+            <path d="M14 20h6"></path>
           </svg>
         </button>
       </div>
@@ -142,7 +142,7 @@ export function createSearchTab(ctx) {
   const catEl = document.getElementById('search-categories');
   const resultsEl = document.getElementById('search-results-area');
 
-  if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+  if (isScannerSupported()) {
     scanBtn.hidden = false;
   }
 
@@ -1697,156 +1697,20 @@ export function createSearchTab(ctx) {
   }
 
   // --- Chytrý parser 2D (QR, GS1 DataMatrix) a 1D kódů pro vyhledání podle šarže ---
-  function extractSearchTermFromScan(rawValue, items = []) {
-    const raw = String(rawValue || '').trim();
-    if (!raw) return { term: '', matchedType: null };
-
-    const rawUpper = raw.toUpperCase();
-
-    // 1. Přímá shoda s aktivní šarží nebo kódem zboží ze skladu (funguje i pro QR s URL nebo dlouhý 2D kód)
-    const uniqueLots = Array.from(
-      new Set(
-        items
-          .map((i) => String(i.lot || '').trim())
-          .filter((l) => l && l !== '-' && l.length >= 4)
-      )
-    ).sort((a, b) => b.length - a.length);
-
-    for (const lot of uniqueLots) {
-      const lotUp = lot.toUpperCase();
-      if (rawUpper.includes(lotUp)) {
-        return { term: lot, matchedType: 'šarže' };
-      }
-      const lotNoZeros = lotUp.replace(/^0+/, '');
-      if (lotNoZeros.length >= 5 && rawUpper.includes(lotNoZeros)) {
-        return { term: lot, matchedType: 'šarže' };
-      }
-    }
-
-    // 2. GS1 čitelný formát se závorkami: např. (01)...(17)...(10)0029895964
-    const parenLot = raw.match(/\(10\)([^\(\x1d\s]{3,24})/);
-    if (parenLot && parenLot[1]) {
-      return { term: parenLot[1].trim(), matchedType: 'GS1 šarže' };
-    }
-
-    // 3. GS1 strojový DataMatrix / QR (odstraň symbology ID ]d2, ]Q3, ]C1 a úvodní FNC1 \x1d)
-    let gs = raw.replace(/^\][A-Za-z][0-9]/, '').replace(/^\x1d+/, '');
-    if (/^(01\d{14}|02\d{14})/.test(gs)) {
-      let pos = 0;
-      const fixedAiLen = { '01': 14, '02': 14, '11': 6, '13': 6, '15': 6, '17': 6 };
-      while (pos < gs.length) {
-        if (gs[pos] === '\x1d') {
-          pos++;
-          continue;
-        }
-        const ai2 = gs.slice(pos, pos + 2);
-        if (ai2 === '10') {
-          const rest = gs.slice(pos + 2);
-          const gsSep = rest.indexOf('\x1d');
-          const lotVal = (gsSep >= 0 ? rest.slice(0, gsSep) : rest).trim();
-          if (lotVal.length >= 3) {
-            return { term: lotVal, matchedType: 'GS1 šarže' };
-          }
-          break;
-        }
-        if (fixedAiLen[ai2]) {
-          pos += 2 + fixedAiLen[ai2];
-        } else {
-          // Neznámé proměnné AI -> přeskoč po další FNC1 (\x1d)
-          const nextSep = gs.indexOf('\x1d', pos + 2);
-          if (nextSep < 0) break;
-          pos = nextSep + 1;
-        }
-      }
-    }
-
-    // 4. URL parametr v QR kódu (např. ?lot=... nebo ?batch=... nebo /10/...)
-    const urlLot = raw.match(/(?:[?&](?:lot|batch|sarze)=|\/10\/)([^&#\/\s]{3,24})/i);
-    if (urlLot && urlLot[1]) {
-      return { term: decodeURIComponent(urlLot[1]).trim(), matchedType: 'QR šarže' };
-    }
-
-    return { term: raw.replace(/[\x00-\x1f]/g, '').trim(), matchedType: null };
-  }
-
-  // --- Skener 1D & 2D (QR, DataMatrix) kódů ---
-  async function openBarcodeScanner() {
-    const modal = document.getElementById('scanner-modal');
-    const video = document.getElementById('scanner-video');
-    const status = document.getElementById('scanner-status');
-    const closeBtn = document.getElementById('scanner-close-btn');
-
-    modal.hidden = false;
-    status.textContent = 'Spouštím zadní kameru…';
-
-    const stopScanner = () => {
-      if (scannerRaf) cancelAnimationFrame(scannerRaf);
-      scannerRaf = null;
-      if (scannerStream) {
-        scannerStream.getTracks().forEach((t) => t.stop());
-        scannerStream = null;
-      }
-      video.srcObject = null;
-      modal.hidden = true;
-    };
-
-    closeBtn.onclick = stopScanner;
-    modal.onclick = (e) => {
-      if (e.target === modal) stopScanner();
-    };
-
-    try {
-      scannerStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      video.srcObject = scannerStream;
-      await video.play();
-      status.textContent = 'Namiř na 2D kód (QR / DataMatrix) nebo čárový kód šarže…';
-
-      let detector;
-      try {
-        const wanted = ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13', 'pdf417', 'aztec'];
-        const supported =
-          typeof window.BarcodeDetector.getSupportedFormats === 'function'
-            ? await window.BarcodeDetector.getSupportedFormats()
-            : wanted;
-        const formats = wanted.filter((f) => supported.includes(f));
-        detector = formats.length
-          ? new window.BarcodeDetector({ formats })
-          : new window.BarcodeDetector();
-      } catch {
-        detector = new window.BarcodeDetector();
-      }
-
-      const tick = async () => {
-        if (!scannerStream) return;
-        try {
-          const codes = await detector.detect(video);
-          if (codes.length > 0 && codes[0].rawValue) {
-            const rawVal = codes[0].rawValue;
-            const { term, matchedType } = extractSearchTermFromScan(rawVal, ctx.state.items);
-            stopScanner();
-            setSearchQuery(term);
-            ctx.toast(
-              matchedType ? `📷 Nalezena ${matchedType}: ${term}` : `📷 Naskenováno: ${term}`,
-              'success'
-            );
-            return;
-          }
-        } catch {
-          // ignore frame error
-        }
-        scannerRaf = requestAnimationFrame(tick);
-      };
-      scannerRaf = requestAnimationFrame(tick);
-    } catch {
-      status.textContent = 'Nepodařilo se spustit kameru. Zkontroluj oprávnění prohlížeče.';
-    }
+  // --- Skener 2D (QR, DataMatrix) šarží — 1D čárové kódy se vynechávají ---
+  function openBarcodeScanner() {
+    openLotScanner({
+      items: ctx.state.items,
+      title: '📷 Skenovat šarži (QR / 2D kód)',
+      hint: 'Namiř na QR nebo DataMatrix kód se šarží (čárové kódy se ignorují)…',
+      onDetect: ({ term, matchedType }) => {
+        setSearchQuery(term);
+        ctx.toast(
+          matchedType ? `📷 Nalezena ${matchedType}: ${term}` : `📷 Naskenováno: ${term}`,
+          'success'
+        );
+      },
+    });
   }
 
   function setSearchQuery(text, exact = false) {
