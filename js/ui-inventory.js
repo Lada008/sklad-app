@@ -68,6 +68,14 @@ export function createInventoryTab(ctx) {
         </select>
       </div>
 
+      <div class="field" style="margin-top: 10px;">
+        <label>Způsob počítání inventury</label>
+        <div id="inv-mode-switch" class="chip-row" style="padding: 0;" role="group" aria-label="Režim inventury">
+          <button type="button" class="chip" data-inv-mode="lot">🏷️ Podle šarží a lokací</button>
+          <button type="button" class="chip" data-inv-mode="total">📦 Celkový součet přípravku (vč. komisí, bez šarží)</button>
+        </div>
+      </div>
+
       <div class="switch-row">
         <div>
           <div class="switch-label">🙈 Slepá inventura</div>
@@ -103,6 +111,7 @@ export function createInventoryTab(ctx) {
   `;
 
   const sectionSelect = document.getElementById('inv-section-select');
+  const modeSwitch = document.getElementById('inv-mode-switch');
   const blindToggle = document.getElementById('inv-blind-toggle');
   const progressArea = document.getElementById('inv-progress-area');
   const searchInput = document.getElementById('inv-search-input');
@@ -116,6 +125,15 @@ export function createInventoryTab(ctx) {
 
   sectionSelect.addEventListener('change', () => {
     ctx.setPrefs({ invSection: sectionSelect.value });
+    visibleLimit = INV_PAGE_SIZE;
+    expandedKeys.clear();
+    render();
+  });
+
+  modeSwitch.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-inv-mode]');
+    if (!btn) return;
+    ctx.setPrefs({ invMode: btn.dataset.invMode });
     visibleLimit = INV_PAGE_SIZE;
     expandedKeys.clear();
     render();
@@ -339,8 +357,13 @@ export function createInventoryTab(ctx) {
     return SECTIONS.find((s) => s.id === id) || SECTIONS[0];
   }
 
+  function getInvMode() {
+    return ctx.state.prefs.invMode === 'total' ? 'total' : 'lot';
+  }
+
   function getSectionItems() {
     const section = getActiveSection();
+    const invMode = getInvMode();
     let base = ctx.state.items;
     if (section.id === 'Boršice (Sklad + Komise Boršice)') {
       base = base.filter((i) => i.wh === 'Boršice');
@@ -350,8 +373,53 @@ export function createInventoryTab(ctx) {
       base = base.filter((i) => String(i.loc || '').startsWith('K.'));
     }
 
-    // Seskupení přesně podle (Číslo zboží + Kód lokace + Číslo šarže + Datum expirace)
     const map = new Map();
+
+    if (invMode === 'total') {
+      // Celkový součet přípravku na vybraném úseku — bez rozlišení šarží, expirací i bez rozlišení vlastní sklad vs. komise
+      for (const row of base) {
+        const key = buildInventoryKey(row.c, section.recordName, 'VŠE (součet)', '');
+        let entry = map.get(key);
+        if (!entry) {
+          entry = {
+            key,
+            isTotalMode: true,
+            section: section.recordName,
+            code: row.c,
+            name: row.n,
+            loc: section.recordName,
+            locDisplay: `${section.recordName} (vše dohromady)`,
+            lot: 'VŠE (součet)',
+            exp: '',
+            system: 0,
+            batchCount: 0,
+            locSums: new Map(),
+            searchParts: new Set([row.n, row.c]),
+          };
+          map.set(key, entry);
+        }
+        entry.system = Math.round((entry.system + row.q) * 10000) / 10000;
+        entry.batchCount += 1;
+        const locLbl = row._locDisplay || row.ln || row.loc;
+        entry.locSums.set(locLbl, Math.round(((entry.locSums.get(locLbl) || 0) + row.q) * 10000) / 10000);
+        entry.searchParts.add(row.loc);
+        entry.searchParts.add(row.ln);
+        entry.searchParts.add(row.lot);
+      }
+
+      return Array.from(map.values())
+        .filter((x) => x.system > 0)
+        .map((x) => ({
+          ...x,
+          breakdownText: Array.from(x.locSums.entries())
+            .map(([lbl, q]) => `${lbl}: ${formatQtyWithUnit(q, x.name)}`)
+            .join(' + '),
+          search: normalizeText(Array.from(x.searchParts).join(' ')),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'cs'));
+    }
+
+    // Režim podle šarží a lokací: (Číslo zboží + Kód lokace + Číslo šarže + Datum expirace)
     for (const row of base) {
       const expIso = row.exp || '';
       const key = buildInventoryKey(row.c, row.loc, row.lot, expIso);
@@ -359,6 +427,7 @@ export function createInventoryTab(ctx) {
       if (!entry) {
         entry = {
           key,
+          isTotalMode: false,
           section: section.recordName,
           code: row.c,
           name: row.n,
@@ -537,8 +606,14 @@ export function createInventoryTab(ctx) {
 
   function render() {
     const section = getActiveSection();
+    const invMode = getInvMode();
     sectionSelect.value = section.id;
     blindToggle.checked = Boolean(ctx.state.prefs.blindMode);
+    modeSwitch.querySelectorAll('[data-inv-mode]').forEach((btn) => {
+      const active = btn.dataset.invMode === invMode;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
 
     const unsyncedCount = Object.values(ctx.state.inventory || {}).filter(
       (r) => r && r.synced === false
@@ -679,14 +754,23 @@ export function createInventoryTab(ctx) {
         let bodyHtml = '';
         if (isOpen) {
           const expCz = it.exp ? formatIsoDateCz(it.exp) : '—';
+          const metaHeader = it.isTotalMode
+            ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · <strong>Celkový součet</strong> (${escapeHtml(it.section)}, vlastní + komise)</span>`
+            : `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span>`;
+          const breakdownLine =
+            it.isTotalMode && !blindMode && it.breakdownText
+              ? `<span style="width:100%;font-size:0.75rem;color:var(--ink-muted);">Složení v BC: ${escapeHtml(it.breakdownText)}</span>`
+              : '';
           const infoLine = isDone
-            ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span>
+            ? `${metaHeader}
                <span>BC: <strong>${formatQtyWithUnit(it.system, it.name)}</strong> <em>(= ${escapeHtml(packInfo)})</em></span>
-               <span>Zadáno: <strong>${formatQtyWithUnit(rec.actual, it.name)}</strong> (${isDiff ? `<strong style="color:var(--danger)">Rozdíl ${rec.diff > 0 ? '+' : ''}${formatQtyWithUnit(rec.diff, it.name)}</strong>` : '<strong style="color:var(--brand-700)">Sedí</strong>'})</span>`
+               <span>Zadáno: <strong>${formatQtyWithUnit(rec.actual, it.name)}</strong> (${isDiff ? `<strong style="color:var(--danger)">Rozdíl ${rec.diff > 0 ? '+' : ''}${formatQtyWithUnit(rec.diff, it.name)}</strong>` : '<strong style="color:var(--brand-700)">Sedí</strong>'})</span>
+               ${breakdownLine}`
             : blindMode
-              ? `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span><span>Očekáváno: <strong>❓ slepá inventura</strong></span>`
-              : `<span>Kód: <strong class="mono">${escapeHtml(it.code)}</strong> · Lokace: <strong>${escapeHtml(it.locDisplay)}</strong> · Exp: <strong>${expCz}</strong></span>
-                 <span>V BC: <strong>${formatQtyWithUnit(it.system, it.name)} = ${escapeHtml(packInfo)}</strong></span>`;
+              ? `${metaHeader}<span>Očekáváno: <strong>❓ slepá inventura</strong></span>`
+              : `${metaHeader}
+                 <span>V BC: <strong>${formatQtyWithUnit(it.system, it.name)} = ${escapeHtml(packInfo)}</strong></span>
+                 ${breakdownLine}`;
 
           const defaultVal = isDone ? formatNumberRaw(rec.actual) : '';
           const defaultNote = isDone ? rec.note || '' : '';
@@ -770,7 +854,11 @@ export function createInventoryTab(ctx) {
               <div class="inv-item-main">
                 <div class="inv-item-name">${escapeHtml(it.name)}</div>
                 <div class="inv-item-sub">
-                  <strong>${escapeHtml(it.locDisplay)}</strong> · Šarže: <strong class="mono">${escapeHtml(it.lot)}</strong>${it.exp ? ` · Exp: ${formatIsoDateCz(it.exp)}` : ''}
+                  ${
+                    it.isTotalMode
+                      ? `<strong>Celkový součet</strong> (vlastní + komise · ${it.batchCount} ${it.batchCount === 1 ? 'šarže' : it.batchCount >= 2 && it.batchCount <= 4 ? 'šarže' : 'šarží'}) · <span class="mono">${escapeHtml(it.code)}</span>`
+                      : `<strong>${escapeHtml(it.locDisplay)}</strong> · Šarže: <strong class="mono">${escapeHtml(it.lot)}</strong>${it.exp ? ` · Exp: ${formatIsoDateCz(it.exp)}` : ''}`
+                  }
                   ${!blindMode ? `<br><span style="color:var(--ink-secondary);">${escapeHtml(packInfo)}</span>` : ''}
                 </div>
               </div>

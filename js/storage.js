@@ -26,6 +26,7 @@ const LS_KEYS = {
 const DEFAULT_PREFS = {
   warehouseFilter: 'all',
   invSection: 'Boršice (Sklad + Komise Boršice)',
+  invMode: 'lot', // 'lot' (po šaržích a lokacích) | 'total' (celkový součet přípravku vč. komisí bez šarží)
   blindMode: true,
   wakeLockEnabled: true,
   batchSort: 'qty', // 'qty' | 'fefo'
