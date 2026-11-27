@@ -648,7 +648,7 @@ function mergeCloudInventory(cloudRows = []) {
 }
 
 // --- Synchronizace s Google Apps Script backendem (GET) ---
-async function syncFromGas({ silent = false } = {}) {
+async function syncFromGas({ silent = false, skipStock = false, forceStock = false } = {}) {
   const gasUrl = state.prefs.gasUrl;
   if (!gasUrl) {
     if (!silent) toast('URL adresa Google Apps Scriptu není nastavena.', 'warn');
@@ -663,7 +663,9 @@ async function syncFromGas({ silent = false } = {}) {
     state.gasConnected = true;
     state.lastGasSyncAt = Date.now();
 
-    if (res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy') {
+    const keepLocalUnsyncedStock = !forceStock && (skipStock || state.meta?.syncedToGas === false);
+
+    if (!keepLocalUnsyncedStock && res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy') {
       state.lastSkladUpdate = res.lastSkladUpdate;
     }
 
@@ -680,7 +682,7 @@ async function syncFromGas({ silent = false } = {}) {
       mergeCloudInventory(res.inventura);
     }
 
-    if (Array.isArray(res.sklad) && res.sklad.length > 0) {
+    if (!keepLocalUnsyncedStock && Array.isArray(res.sklad) && res.sklad.length > 0) {
       const updatedAt =
         res.lastSkladUpdate && res.lastSkladUpdate !== 'Nikdy'
           ? res.lastSkladUpdate
@@ -689,6 +691,7 @@ async function syncFromGas({ silent = false } = {}) {
         meta: {
           updatedAt,
           source: 'Google Tabulka (GAS)',
+          syncedToGas: true,
           rowCount: res.sklad.length,
           productCount: new Set(res.sklad.map((i) => i.c)).size,
         },
@@ -702,10 +705,17 @@ async function syncFromGas({ silent = false } = {}) {
 
     refreshAllViews();
     if (!silent) {
-      toast(
-        `✅ Data obnovena z cloudu (${state.rawItems.length} šarží, ${state.cloudInventory.length} inventur, ${state.orders.length} objednávek)`,
-        'success'
-      );
+      if (keepLocalUnsyncedStock) {
+        toast(
+          `⚠️ Lokální sklad.xlsx ještě není v cloudu — zobrazuji tvá lokální data (${state.rawItems.length} šarží). Odešli je v záložce Data.`,
+          'warn'
+        );
+      } else {
+        toast(
+          `✅ Data obnovena z cloudu (${state.rawItems.length} šarží, ${state.cloudInventory.length} inventur, ${state.orders.length} objednávek)`,
+          'success'
+        );
+      }
     }
     return true;
   } catch (err) {
@@ -811,6 +821,7 @@ async function bootstrap() {
   })().catch(() => null);
 
   let gasOk = false;
+  let keepUnsyncedLocal = false;
   if (navigator.onLine !== false) {
     // Pokud byl na tomto PC nahrán novější sklad.xlsx, který se ještě nestihl odeslat do cloudu, nejdřív ho odešli
     const pendingLocal = await loadLocalStockData().catch(() => null);
@@ -827,11 +838,17 @@ async function bootstrap() {
         if (resp?.last_sklad_update) pendingLocal.meta.updatedAt = resp.last_sklad_update;
         await saveLocalStockData(pendingLocal);
         toast(`✅ Sklad z PC automaticky odeslán do cloudu (${pendingLocal.items.length} položek)`, 'success');
-      } catch {
-        // Zůstane uloženo lokálně a zkusí se znovu příště
+      } catch (pushErr) {
+        // Odeslání selhalo — ponech lokální data z Excelu aktivní a nepřepisuj je starším cloudem!
+        keepUnsyncedLocal = true;
+        applyStockDataset(pendingLocal);
+        toast(
+          `⚠️ Nový sklad.xlsx se nepodařilo odeslat do cloudu (${pushErr?.message || pushErr}). Zobrazuji lokální data — zkus odeslat znovu v záložce Data.`,
+          'danger'
+        );
       }
     }
-    gasOk = await syncFromGas({ silent: true });
+    gasOk = await syncFromGas({ silent: true, skipStock: keepUnsyncedLocal });
   }
 
   const porData = await porPromise;

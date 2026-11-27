@@ -241,6 +241,7 @@ export function createDataTab(ctx) {
       let gasUpdatedTime = parsed.meta.updatedAt;
       let gasSyncedOk = false;
       let gasErrMsg = '';
+      let gasCountInfo = '';
 
       try {
         const resp = await gasUpdateSklad(parsed.items, ctx.state.prefs.gasUrl);
@@ -250,6 +251,9 @@ export function createDataTab(ctx) {
         gasSyncedOk = true;
         ctx.state.gasConnected = true;
         ctx.state.lastSkladUpdate = gasUpdatedTime;
+        if (typeof resp.count === 'number' && resp.count !== parsed.items.length) {
+          gasCountInfo = ` (pozor: server hlásí ${resp.count} řádků místo ${parsed.items.length})`;
+        }
       } catch (gasErr) {
         parsed.meta.syncedToGas = false;
         gasErrMsg = gasErr?.message || String(gasErr);
@@ -265,25 +269,28 @@ export function createDataTab(ctx) {
       ctx.applyStockDataset(parsed);
 
       const { matchedProducts, totalProducts } = getMatchedProductStats();
+      const komiseCount = new Set(
+        parsed.items.filter((i) => String(i.loc || '').startsWith('K.')).map((i) => i.c)
+      ).size;
       syncResultBox.hidden = false;
       if (gasSyncedOk) {
         syncResultBox.innerHTML = `
           <div class="callout" style="background:var(--brand-50);border:1px solid var(--brand-600);color:var(--brand-950);margin:0;">
             <span class="callout-icon">✅</span>
             <div>
-              <strong>Sklad odeslán do cloudu (${parsed.items.length} položek)</strong><br>
-              Zpracováno z ${parsed.meta.ledgerRows?.toLocaleString('cs-CZ') || '—'} pohybů v BC (pouze <code>Otevřeno == 1</code> a <code>Zůstatek &gt; 0</code>). Čas aktualizace: <strong>${escapeHtml(gasUpdatedTime)}</strong> · Spárováno s ÚKZÚZ: <strong>${matchedProducts}/${totalProducts}</strong> produktů.
+              <strong>Sklad odeslán do cloudu (${parsed.items.length} položek${escapeHtml(gasCountInfo)})</strong><br>
+              Zpracováno z ${parsed.meta.ledgerRows?.toLocaleString('cs-CZ') || '—'} pohybů v BC (pouze <code>Otevřeno == 1</code> a <code>Zůstatek &gt; 0</code>). Komise: <strong>${komiseCount}</strong> · Čas aktualizace: <strong>${escapeHtml(gasUpdatedTime)}</strong> · Spárováno s ÚKZÚZ: <strong>${matchedProducts}/${totalProducts}</strong> produktů.
             </div>
           </div>
         `;
-        ctx.toast(`✅ Sklad odeslán do cloudu (${parsed.items.length} položek)`, 'success');
+        ctx.toast(`✅ Sklad odeslán do cloudu (${parsed.items.length} položek, komise: ${komiseCount})`, 'success');
       } else {
         syncResultBox.innerHTML = `
           <div class="callout callout-expired" style="margin:0;">
             <span class="callout-icon">❌</span>
             <div>
               <strong>Odeslání skladu do cloudu selhalo:</strong> ${escapeHtml(gasErrMsg)}<br>
-              Data jsou zatím uložena jen lokálně v tomto prohlížeči (${parsed.items.length} položek). Zkontroluj připojení nebo URL Google Apps Scriptu a klikni na „Odeslat aktuální sklad do cloudu“.
+              Data jsou uložena lokálně (${parsed.items.length} položek, komise: ${komiseCount}) a po F5 se sama nepřepíšou starým cloudem. Klikni níže na „Odeslat aktuální sklad do cloudu“.
             </div>
           </div>
         `;
@@ -310,6 +317,10 @@ export function createDataTab(ctx) {
         if (resp.last_sklad_update) {
           ctx.state.lastSkladUpdate = resp.last_sklad_update;
           if (ctx.state.meta) ctx.state.meta.updatedAt = resp.last_sklad_update;
+        }
+        if (ctx.state.meta) {
+          ctx.state.meta.syncedToGas = true;
+          await saveLocalStockData({ meta: ctx.state.meta, items: ctx.state.rawItems });
         }
         ctx.state.gasConnected = true;
         ctx.refreshAllViews();
@@ -340,7 +351,8 @@ export function createDataTab(ctx) {
 
     if (e.target.closest('#revert-default-stock-btn')) {
       await clearLocalStockData();
-      await ctx.syncFromGas({ silent: false });
+      if (ctx.state.meta) ctx.state.meta.syncedToGas = true;
+      await ctx.syncFromGas({ silent: false, forceStock: true });
       return;
     }
     if (e.target.closest('#export-stock-json-btn')) {
